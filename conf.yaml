@@ -11,6 +11,7 @@ experimento_colaborativo:
     # Ruta al archivo de datos de entrada
     #DATA_PATH: "data/competencia_01_crudo.csv"
     DATA_PATH: "~/buckets/b1/datasets/competencia_02_crudo.csv.gz"
+    OUTPUT_PATH: "~/buckets/b1/datasets/competencia_02_FE.csv"
     
     # Resto de los parámetros que config.py necesita
     SEMILLA: [42]

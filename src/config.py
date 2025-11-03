@@ -14,6 +14,7 @@ try:
 
         STUDY_NAME = _cfgGeneral.get("STUDY_NAME", "test")
         DATA_PATH = _cfg.get("DATA_PATH", "../data/competencia_crudo.csv")
+        OUTPUT_PATH = _cfg.get("OUTPUT_PATH", "../data/competencia_02_fe.csv")
         SQL_TABLE_NAME = 'tabla_features' # Este valor es fijo en el código
         SEMILLA = _cfg.get("SEMILLA", [42])
         MES_TRAIN = _cfg.get("MES_TRAIN", "202102")
