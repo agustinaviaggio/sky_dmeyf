@@ -1,10 +1,10 @@
 import duckdb
 import logging
 
-logger = logging.getLogger("__name__")
+logger = logging.getLogger(__name__)
 
 
-def create_sql_table(path: str) -> duckdb.DuckDBPyConnection | None:
+def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
     '''
     Carga un CSV desde 'path' en una tabla DuckDB en memoria y retorna 
     el objeto de conexión para interactuar con esa tabla.
@@ -13,7 +13,7 @@ def create_sql_table(path: str) -> duckdb.DuckDBPyConnection | None:
     conn = duckdb.connect(database=':memory:')
     try:        
         conn.execute(f"""
-            CREATE OR REPLACE TABLE tabla_sql AS
+            CREATE OR REPLACE TABLE {table_name} AS
             SELECT *
             FROM read_csv_auto('{path}')
         """)
@@ -24,54 +24,113 @@ def create_sql_table(path: str) -> duckdb.DuckDBPyConnection | None:
         conn.close()
         raise
 
-def atributes_to_intergers(conn: duckdb.DuckDBPyConnection, cols_to_alter: list[str])-> duckdb.DuckDBPyConnection:
+def attributes_to_intergers(conn: duckdb.DuckDBPyConnection, table_name: str, cols_to_alter: list[str])-> duckdb.DuckDBPyConnection:
     for col in cols_to_alter:
         conn.execute(f"""
-            ALTER TABLE tabla_sql
+            ALTER TABLE {table_name}
             ALTER COLUMN {col} SET DATA TYPE INTEGER
         """)
     return conn
 
-def drop_columns(conn: duckdb.DuckDBPyConnection, cols_to_drop: list[str])-> duckdb.DuckDBPyConnection:
+def drop_columns(conn: duckdb.DuckDBPyConnection, table_name: str, cols_to_drop: list[str])-> duckdb.DuckDBPyConnection:
     for col in cols_to_drop:
-        conn.execute(f"ALTER TABLE tabla_sql DROP COLUMN {col}")
+        conn.execute(f"ALTER TABLE {table_name} DROP COLUMN {col}")
     return conn
 
-def create_latest_and_earliest_credit_card_atributes(conn: duckdb.DuckDBPyConnection, cols_pairs: list[str])-> duckdb.DuckDBPyConnection:
-    sql = """CREATE OR REPLACE TABLE tabla_sql AS
-    SELECT *"""
-    
+def create_latest_and_earliest_credit_card_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, cols_pairs: list[str]) -> duckdb.DuckDBPyConnection:
+    # 1. Crear la lista de expresiones SQL para las nuevas columnas
+    new_cols_sql = []
     for col1, col2, prefix in cols_pairs:
-        sql += f"CAST(greatest({col1}, {col2}) AS INTEGER) AS {prefix}_latest"
-        sql += f"CAST(least({col1}, {col2}) AS INTEGER) AS {prefix}_earliest"
+        # Usamos format string para crear la expresión de cada columna
+        latest_expr = f"CAST(greatest({col1}, {col2}) AS INTEGER) AS {prefix}_latest"
+        earliest_expr = f"CAST(least({col1}, {col2}) AS INTEGER) AS {prefix}_earliest"
+        new_cols_sql.append(latest_expr)
+        new_cols_sql.append(earliest_expr)
 
-    sql += " FROM tabla_sql"
+    # 2. Unir las expresiones con comas
+    new_cols_str = ", " + ", ".join(new_cols_sql)
+
+    # 3. Construir la sentencia SQL completa de forma limpia
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        SELECT 
+            * {new_cols_str}
+        FROM 
+            {table_name}
+    """
     
     conn.execute(sql)
     return conn
 
-def create_sum_credit_card_atributes(conn: duckdb.DuckDBPyConnection, cols_visa: list[str], cols_master: list[str])-> duckdb.DuckDBPyConnection:
+def create_sum_credit_card_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, cols_visa: list, cols_master: list)-> duckdb.DuckDBPyConnection:
     conn.execute("""
         CREATE OR REPLACE MACRO suma_sin_null(a, b) AS (
             ifnull(a, 0) + ifnull(b, 0)
         )
     """)
 
-    sql = """CREATE OR REPLACE TABLE tabla_sql AS
-    SELECT *"""
-
+    new_cols_sql = []
+    
     for v_col, m_col in zip(cols_visa, cols_master):
          if '_status' not in v_col:
             sufijo = v_col.replace("Visa_", "").replace("visa_", "").replace("Visa", "").replace("visa", "")
-            sql += f"suma_sin_null({v_col},{m_col}) AS {sufijo}_tc"
+            new_cols_sql.append(f"suma_sin_null({v_col},{m_col}) AS {sufijo}_tc")
     
-    sql += "FROM tabla_sql"
+    new_cols_str = ", " + ", ".join(new_cols_sql) if new_cols_sql else ""
+
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        SELECT * {new_cols_str}
+        FROM {table_name}
+    """
 
     conn.execute(sql)    
 
     return conn
 
-def crear_atributos_lag(conn: duckdb.DuckDBPyConnection, excluir_columnas: list[str], cant_lag: int = 1) -> duckdb.DuckDBPyConnection:
+def create_ratio_m_c_attributes(conn: duckdb.DuckDBPyConnection, table_name: str)-> duckdb.DuckDBPyConnection:
+    conn.execute("""
+        CREATE OR REPLACE MACRO ratio(a, b) AS (a // (b + 0.01))
+    """)
+
+    sql_get_cols = f"""
+            SELECT 
+                name 
+            FROM 
+                 pragma_table_info('{table_name}')
+        """
+    
+    columnas_tuples = conn.execute(sql_get_cols).fetchall()
+    columnas = [c[0] for c in columnas_tuples]
+
+    # Separar columnas que empiezan con 'm' y 'c'
+    cols_m = [c for c in columnas if c.startswith('m')]
+    cols_c = [c for c in columnas if c.startswith('c')]
+
+    # Crear diccionario de sufijo a columna
+    sufijo_a_m = {c[1:]: c for c in cols_m}  # clave = sufijo sin la primera letra
+    sufijo_a_c = {c[1:]: c for c in cols_c}
+
+    # Generar pares donde el sufijo coincide
+    pares = [(sufijo_a_m[s], sufijo_a_c[s]) for s in sufijo_a_m if s in sufijo_a_c]
+
+    new_cols_sql = []
+    for a, b in pares:
+        new_cols_sql.append(f"ratio({a},{b}) AS ratio_{a}_{b}")
+    
+    new_cols_str = ", " + ", ".join(new_cols_sql) if new_cols_sql else ""
+
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        SELECT * {new_cols_str}
+        FROM {table_name}
+    """
+
+    conn.execute(sql)    
+
+    return conn
+
+def create_lag_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], cant_lag: int = 1) -> duckdb.DuckDBPyConnection:
     """
     Genera variables de lag para los atributos especificados y reemplaza la tabla.
   
@@ -92,13 +151,13 @@ def crear_atributos_lag(conn: duckdb.DuckDBPyConnection, excluir_columnas: list[
 
     logger.info(f"Realizando feature engineering con {cant_lag} lags para todos los atributos con excepción de las variables con tipo de de dato INTERGER o VARCHAR y los {len(excluir_columnas)} atributos excluídos explicitamente según la lista {excluir_columnas}")
 
-    sql_get_cols = """
+    sql_get_cols = f"""
             SELECT 
-                column_name 
+                name 
             FROM 
-                (DESCRIBE tabla_sql)
+                pragma_table_info('{table_name}')
             WHERE 
-                column_type NOT IN ('INTEGER', 'VARCHAR')
+                type NOT IN ('INTEGER', 'VARCHAR')
         """
     
     cols_numericas_list = conn.execute(sql_get_cols).fetchall()
@@ -110,26 +169,284 @@ def crear_atributos_lag(conn: duckdb.DuckDBPyConnection, excluir_columnas: list[
         logger.warning("No se encontraron columnas numéricas válidas para generar lags. Devolviendo la conexión sin cambios.")
         return conn
   
-    # Construir la consulta SQL
-    sql = """CREATE OR REPLACE TABLE tabla_sql AS
-        SELECT *"""
-  
-    # Agregar los lags para los atributos especificados
+    new_cols_sql = []
     for attr in cols_numericas:
         for i in range(1, cant_lag + 1):
-            sql += f", lag({attr}, {i}) OVER (PARTITION BY numero_de_cliente ORDER BY foto_mes) AS {attr}_lag_{i}"
+            # Agregamos la expresión a la lista
+            new_cols_sql.append(f"lag({attr}, {i}) OVER (PARTITION BY numero_de_cliente ORDER BY foto_mes) AS {attr}_lag_{i}")
   
-    # Completar la consulta
-    sql += " FROM tabla_sql"
+    new_cols_str = ", " + ", ".join(new_cols_sql)
+
+    # Construir la consulta SQL
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        SELECT * {new_cols_str}
+        FROM {table_name}
+    """
+
+    logger.debug(f"Consulta SQL: {sql}")
+
+    # Ejecutar la consulta SQL
+    conn.execute(sql)
+    return conn
+
+def create_delta_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], cant_delta: int = 1) -> duckdb.DuckDBPyConnection:
+    """
+    Genera variables de delta para los atributos especificados y reemplaza la tabla.
+  
+    Parameters:
+    -----------
+    conn : duckdb.DuckDBPyConnection
+        Conexión a la tabla DuckDB con los datos.
+    excluir_columnas : list
+        Lista de atributos a excluir para los cuales generar deltas.
+    cant_lag : int, default=1
+        Cantidad de lags a generar para cada atributo
+  
+    Returns:
+    --------
+    duckdb.DuckDBPyConnection
+       Conexión a la tabla DuckDB con los datos con las variables de delta agregadas.
+    """
+
+    logger.info(f"Realizando feature engineering con {cant_delta} deltas para todos los atributos con excepción de las variables con tipo de de dato INTERGER o VARCHAR y los {len(excluir_columnas)} atributos excluídos explicitamente según la lista {excluir_columnas}")
+
+    sql_get_cols = f"""
+            SELECT 
+                name 
+            FROM 
+                pragma_table_info('{table_name}')
+            WHERE 
+                type NOT IN ('INTEGER', 'VARCHAR')
+        """
+    
+    cols_numericas_list = conn.execute(sql_get_cols).fetchall()
+    cols_numericas = [c[0] for c in cols_numericas_list if c[0] not in excluir_columnas]
+
+    logger.info(f"Se generarán {cant_delta} deltas para {len(cols_numericas)} columnas.")
+
+    if not cols_numericas:
+        logger.warning("No se encontraron columnas numéricas válidas para generar deltas. Devolviendo la conexión sin cambios.")
+        return conn
+    
+    new_cols_sql = []
+    for attr in cols_numericas:
+        for i in range(1, cant_delta + 1):
+            new_cols_sql.append(f"{attr} - lag({attr}, {i}) OVER (PARTITION BY numero_de_cliente ORDER BY foto_mes) AS {attr}_delta_{i}")
+  
+    new_cols_str = ", " + ", ".join(new_cols_sql)
+
+    # Construir la consulta SQL
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        SELECT * {new_cols_str}
+        FROM {table_name}
+    """
+
+    logger.debug(f"Consulta SQL: {sql}")
+
+    # Ejecutar la consulta SQL
+    conn.execute(sql)
+    return conn
+
+def create_max_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], month_window: int = 1) -> duckdb.DuckDBPyConnection:
+    """
+    Genera variables de valores máximos por ventana temporal para los atributos especificados y reemplaza la tabla.
+  
+    Parameters:
+    -----------
+    conn : duckdb.DuckDBPyConnection
+        Conexión a la tabla DuckDB con los datos.
+    excluir_columnas : list
+        Lista de atributos a excluir para los cuales generar máximos.
+    month_window: int, default=1
+        Cantidad de meses de la ventana temporal.
+  
+    Returns:
+    --------
+    duckdb.DuckDBPyConnection
+       Conexión a la tabla DuckDB con los datos con las variables de máximos agregadas.
+    """
+
+    logger.info(f"Realizando feature engineering con valores máximos con {month_window} meses de ventana temporal para todos los atributos con excepción de las variables con tipo de de dato INTERGER o VARCHAR y los {len(excluir_columnas)} atributos excluídos explicitamente según la lista {excluir_columnas}")
+
+    sql_get_cols = f"""
+            SELECT 
+                name 
+            FROM 
+                pragma_table_info('{table_name}')
+            WHERE 
+                type NOT IN ('INTEGER', 'VARCHAR')
+        """
+    
+    cols_numericas_list = conn.execute(sql_get_cols).fetchall()
+    cols_numericas = [c[0] for c in cols_numericas_list if c[0] not in excluir_columnas]
+
+    logger.info(f"Se generarán máximos con ventana temporal para {len(cols_numericas)} columnas.")
+
+    if not cols_numericas:
+        logger.warning("No se encontraron columnas numéricas válidas para generar máximos. Devolviendo la conexión sin cambios.")
+        return conn
+    
+    new_cols_sql = []
+    for attr in cols_numericas:
+        new_cols_sql.append(f"max({attr}) OVER w AS {attr}_max_{month_window}")
+    new_cols_str = ", " + ", ".join(new_cols_sql) if new_cols_sql else ""
+  
+    # Construir la consulta SQL
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        SELECT * {new_cols_str}
+        FROM {table_name} 
+        WINDOW w AS (
+            PARTITION BY numero_de_cliente
+            ORDER BY foto_mes
+            ROWS BETWEEN {month_window} PRECEDING AND CURRENT ROW
+        )
+    """
 
     logger.debug(f"Consulta SQL: {sql}")
 
     # Ejecutar la consulta SQL
     conn.execute(sql)
 
-    new_schema_df = conn.execute("DESCRIBE tabla_sql").fetchall()
-    new_num_cols = len(new_schema_df)
+    return conn
 
-    logger.info(f"Feature engineering completado. La tabla resultante tiene {new_num_cols} columnas")
+def create_min_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], month_window: int = 1) -> duckdb.DuckDBPyConnection:
+    """
+    Genera variables de valores mínimos por ventana temporal para los atributos especificados y reemplaza la tabla.
+  
+    Parameters:
+    -----------
+    conn : duckdb.DuckDBPyConnection
+        Conexión a la tabla DuckDB con los datos.
+    excluir_columnas : list
+        Lista de atributos a excluir para los cuales generar mínimos.
+    month_window: int, default=1
+        Cantidad de meses de la ventana temporal.
+  
+    Returns:
+    --------
+    duckdb.DuckDBPyConnection
+       Conexión a la tabla DuckDB con los datos con las variables de mínimos agregadas.
+    """
+
+    logger.info(f"Realizando feature engineering con valores mínimos con {month_window} meses de ventana temporal para todos los atributos con excepción de las variables con tipo de de dato INTERGER o VARCHAR y los {len(excluir_columnas)} atributos excluídos explicitamente según la lista {excluir_columnas}")
+
+    sql_get_cols = f"""
+            SELECT 
+                name 
+            FROM 
+                pragma_table_info('{table_name}')
+            WHERE 
+                type NOT IN ('INTEGER', 'VARCHAR')
+        """
+    
+    cols_numericas_list = conn.execute(sql_get_cols).fetchall()
+    cols_numericas = [c[0] for c in cols_numericas_list if c[0] not in excluir_columnas]
+
+    logger.info(f"Se generarán mínimos con ventana temporal para {len(cols_numericas)} columnas.")
+
+    if not cols_numericas:
+        logger.warning("No se encontraron columnas numéricas válidas para generar mínimos. Devolviendo la conexión sin cambios.")
+        return conn
+  
+    new_cols_sql = []
+    for attr in cols_numericas:
+        new_cols_sql.append(f"min({attr}) OVER w AS {attr}_min_{month_window}")
+    new_cols_str = ", " + ", ".join(new_cols_sql) if new_cols_sql else ""
+  
+    # Construir la consulta SQL
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        SELECT * {new_cols_str}
+        FROM {table_name} 
+        WINDOW w AS (
+            PARTITION BY numero_de_cliente
+            ORDER BY foto_mes
+            ROWS BETWEEN {month_window} PRECEDING AND CURRENT ROW
+        )
+    """
+
+    logger.debug(f"Consulta SQL: {sql}")
+
+    # Ejecutar la consulta SQL
+    conn.execute(sql)
 
     return conn
+
+def create_avg_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], month_window: int = 1) -> duckdb.DuckDBPyConnection:
+    """
+    Genera variables de valores promedios por ventana temporal para los atributos especificados y reemplaza la tabla.
+  
+    Parameters:
+    -----------
+    conn : duckdb.DuckDBPyConnection
+        Conexión a la tabla DuckDB con los datos.
+    excluir_columnas : list
+        Lista de atributos a excluir para los cuales generar promedios.
+    month_window: int, default=1
+        Cantidad de meses de la ventana temporal.
+  
+    Returns:
+    --------
+    duckdb.DuckDBPyConnection
+       Conexión a la tabla DuckDB con los datos con las variables de promedios agregadas.
+    """
+
+    logger.info(f"Realizando feature engineering con valores promedios con {month_window} meses de ventana temporal para todos los atributos con excepción de las variables con tipo de de dato INTERGER o VARCHAR y los {len(excluir_columnas)} atributos excluídos explicitamente según la lista {excluir_columnas}")
+
+    sql_get_cols = f"""
+            SELECT 
+                name 
+            FROM 
+                pragma_table_info('{table_name}')
+            WHERE 
+                type NOT IN ('INTEGER', 'VARCHAR')
+        """
+    
+    cols_numericas_list = conn.execute(sql_get_cols).fetchall()
+    cols_numericas = [c[0] for c in cols_numericas_list if c[0] not in excluir_columnas]
+
+    logger.info(f"Se generarán promedios con ventana temporal para {len(cols_numericas)} columnas.")
+
+    if not cols_numericas:
+        logger.warning("No se encontraron columnas numéricas válidas para generar promedios. Devolviendo la conexión sin cambios.")
+        return conn
+  
+    new_cols_sql = []
+    for attr in cols_numericas:
+        new_cols_sql.append(f"avg({attr}) OVER w AS {attr}_avg_{month_window}")
+    
+    new_cols_str = ", " + ", ".join(new_cols_sql) if new_cols_sql else ""
+
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        SELECT * {new_cols_str}
+        FROM {table_name} 
+        WINDOW w AS (
+            PARTITION BY numero_de_cliente
+            ORDER BY foto_mes
+            ROWS BETWEEN {month_window} PRECEDING AND CURRENT ROW
+        )
+    """
+
+    logger.debug(f"Consulta SQL: {sql}")
+
+    # Ejecutar la consulta SQL
+    conn.execute(sql)
+    return conn
+
+def save_sql_table_to_csv(conn: duckdb.DuckDBPyConnection, table_name: str, path: str) -> None:
+    '''
+    Guarda la tabla sql en CSV a 'path'.
+    '''
+    logger.info(f"Guardando tabla en {path}")
+    conn.execute(f"""
+    COPY {table_name} TO '{path}' (FORMAT CSV, HEADER TRUE)
+    """)
+    
+
+
+
+

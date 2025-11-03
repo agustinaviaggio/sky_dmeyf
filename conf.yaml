@@ -1,0 +1,20 @@
+# ==========================================================
+# conf.yaml
+# (Archivo de configuración mínimo para correr 01_featuring_engineering.py)
+# ==========================================================
+
+# Parámetros Globales (Directamente mapeados a variables en config.py)
+STUDY_NAME: "FE_Inicial"
+
+# Sección que su código config.py busca (_cfgGeneral["experimento_colaborativo"])
+experimento_colaborativo:
+    # Ruta al archivo de datos de entrada
+    DATA_PATH: "data/competencia_01_crudo.csv"
+    
+    # Resto de los parámetros que config.py necesita
+    SEMILLA: [42]
+    MES_TRAIN: "202102"
+    MES_VALIDACION: "202103"
+    MES_TEST: "202104"
+    GANANCIA_ACIERTO: 780000
+    COSTO_ESTIMULO: 20000
