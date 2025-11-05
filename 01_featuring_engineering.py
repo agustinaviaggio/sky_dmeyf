@@ -175,7 +175,7 @@ def main():
         conn = create_avg_attributes(conn, SQL_TABLE_NAME, excluir_columnas_avg, month_window = 3)
 
         # 13. Guardar el CSV con el FE
-        save_sql_table_to_csv(conn,SQL_TABLE_NAME, OUTPUT_PATH)
+        save_sql_table_to_parquet(conn,SQL_TABLE_NAME, OUTPUT_PATH)
 
     except Exception as e:
         logger.error(f"Error durante la ejecución del pipeline: {e}")
