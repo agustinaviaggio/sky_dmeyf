@@ -15,7 +15,7 @@ try:
         STUDY_NAME = _cfgGeneral["STUDY_NAME"]
         DATA_PATH = _cfg["DATA_PATH"]
         OUTPUT_PATH = _cfg["OUTPUT_PATH"]
-        SQL_TABLE_NAME = ['SQL_TABLE_NAME']
+        SQL_TABLE_NAME = _cfg['SQL_TABLE_NAME']
         SEMILLA = _cfg["SEMILLA"]
         MESES_TRAIN = _cfg["MESES_TRAIN"]
         MES_VALIDACION = _cfg["MES_VALIDACION"]
