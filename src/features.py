@@ -4,11 +4,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
-    '''
-    Carga un CSV desde 'path' en una tabla DuckDB en memoria y retorna 
-    el objeto de conexión para interactuar con esa tabla.
-    '''
+'''def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
     logger.info(f"Cargando dataset desde {path}")
     conn = duckdb.connect(database=':memory:')
     try:        
@@ -22,7 +18,209 @@ def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
     except Exception as e:
         logger.error(f"Error al cargar el dataset: {e}")
         conn.close()
+        raise'''
+
+def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
+    '''
+    Carga un CSV desde 'path' en una tabla DuckDB en memoria y retorna 
+    el objeto de conexión para interactuar con esa tabla.
+    '''
+    logger.info(f"Cargando dataset desde {path}")
+    conn = duckdb.connect(database=':memory:')
+    try:        
+        conn.execute(f"""
+            CREATE OR REPLACE TABLE {table_name} AS
+            SELECT *
+            FROM read_csv_auto('{path}', auto_type_candidates=['VARCHAR', 'FLOAT', 'INTEGER'])
+        """)
+        return conn
+    
+    except Exception as e:
+        logger.error(f"Error al cargar el dataset: {e}")
+        conn.close()
         raise
+
+def classify_data_types(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
+    """
+    Crea una tabla con el esquema clasificado en:
+    - 'int_categorico': columnas VARCHAR (categorías codificadas como strings)
+    - 'int_numerico': columnas INTEGER/BIGINT
+    - 'float': columnas FLOAT/DOUBLE
+    
+    Parameters:
+    -----------
+    conn : duckdb.DuckDBPyConnection
+        Conexión a DuckDB
+    table_name : str
+        Nombre de la tabla a analizar
+    
+    Returns:
+    --------
+    duckdb.DuckDBPyConnection
+        Conexión con la tabla de esquema creada
+    """
+    logger.info(f"Clasificando tipos de datos para tabla {table_name}")
+    
+    conn.execute(f"""
+        CREATE OR REPLACE TABLE schema_clasificado AS
+        SELECT 
+            name AS variable,
+            type AS tipo_original,
+            CASE 
+                WHEN type IN ('VARCHAR') THEN 'int_categorico'
+                WHEN type IN ('INTEGER') THEN 'int_numerico'
+                WHEN type IN ('FLOAT'') THEN 'float'
+                ELSE 'otro'
+            END AS tipo_de_dato
+        FROM 
+            pragma_table_info('{table_name}')
+        ORDER BY 
+            name
+    """)
+    return conn
+
+def get_low_cardinality_columns(conn: duckdb.DuckDBPyConnection, table_name: str, max_unique: int = 10) -> list[str]:
+    """
+    Retorna lista de columnas que tienen menos de max_unique valores únicos.
+    
+    Parameters:
+    -----------
+    conn : duckdb.DuckDBPyConnection
+        Conexión a DuckDB
+    table_name : str
+        Nombre de la tabla a analizar
+    max_unique : int, default=10
+        Máximo número de valores únicos
+    
+    Returns:
+    --------
+    list[str]
+        Lista de nombres de columnas con baja cardinalidad
+    """
+    logger.info(f"Buscando columnas con menos de {max_unique} valores únicos en {table_name}")
+    
+    # Obtener todas las columnas
+    columnas = conn.execute(f"""
+        SELECT name 
+        FROM pragma_table_info('{table_name}')
+    """).fetchall()
+    
+    # Construir query dinámica para contar valores únicos
+    count_queries = []
+    for col in columnas:
+        col_name = col[0]
+        count_queries.append(f"(SELECT '{col_name}' AS variable, COUNT(DISTINCT {col_name}) AS valores_unicos FROM {table_name})")
+    
+    full_query = " UNION ALL ".join(count_queries)
+    
+    # Ejecutar y filtrar
+    result = conn.execute(f"""
+        WITH cardinalidad AS ({full_query})
+        SELECT variable 
+        FROM cardinalidad 
+        WHERE valores_unicos < {max_unique}
+        ORDER BY variable
+    """).fetchall()
+    
+    low_cardinality_cols = [row[0] for row in result]
+    
+    logger.info(f"Encontradas {len(low_cardinality_cols)} columnas con menos de {max_unique} valores únicos")
+    
+    return low_cardinality_cols
+
+def clase_ternaria(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
+    """
+    Genera la tabla con clase_ternaria identificando bajas de clientes.
+    Reemplaza la tabla original agregando la columna clase_ternaria.
+    
+    Parameters:
+    -----------
+    conn : duckdb.DuckDBPyConnection
+        Conexión a DuckDB
+    table_name : str
+        Nombre de la tabla a procesar
+    
+    Returns:
+    --------
+    duckdb.DuckDBPyConnection
+        Conexión con la tabla actualizada
+    """
+    logger.info(f"Generando clase_ternaria para tabla {table_name}")
+    
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        WITH periodos AS (
+            SELECT DISTINCT foto_mes FROM {table_name}
+        ), clientes AS (
+            SELECT DISTINCT numero_de_cliente FROM {table_name}
+        ), todo AS (
+            SELECT numero_de_cliente, foto_mes 
+            FROM clientes CROSS JOIN periodos
+        ), clase_ternaria AS (
+            SELECT
+                c.*,
+                IF(c.numero_de_cliente IS NULL, 0, 1) AS mes_0,
+                LEAD(mes_0, 1) OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_1,
+                LEAD(mes_0, 2) OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_2,
+                IF(mes_1 = 0, 'baja+1', IF(mes_2 = 0, 'baja+2', 'continua')) AS clase_ternaria
+            FROM todo t
+            LEFT JOIN {table_name} c USING (numero_de_cliente, foto_mes)
+        ) 
+        SELECT * EXCLUDE (mes_0, mes_1, mes_2)
+        FROM clase_ternaria
+        WHERE mes_0 = 1
+    """
+    
+    conn.execute(sql)
+    logger.info(f"Clase ternaria generada exitosamente para {table_name}")
+    return conn
+
+def clase_binaria(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
+    """
+    Genera la tabla con binaria identificando bajas de clientes.
+    Reemplaza la tabla original agregando la columna clase_binaria.
+    
+    Parameters:
+    -----------
+    conn : duckdb.DuckDBPyConnection
+        Conexión a DuckDB
+    table_name : str
+        Nombre de la tabla a procesar
+    
+    Returns:
+    --------
+    duckdb.DuckDBPyConnection
+        Conexión con la tabla actualizada
+    """
+    logger.info(f"Generando clase_binaria para tabla {table_name}")
+    
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        WITH periodos AS (
+            SELECT DISTINCT foto_mes FROM {table_name}
+        ), clientes AS (
+            SELECT DISTINCT numero_de_cliente FROM {table_name}
+        ), todo AS (
+            SELECT numero_de_cliente, foto_mes 
+            FROM clientes CROSS JOIN periodos
+        ), clase_binaria AS (
+            SELECT
+                c.*,
+                IF(c.numero_de_cliente IS NULL, 0, 1) AS mes_0,
+                LEAD(mes_0, 1) OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_1,
+                LEAD(mes_0, 2) OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_2,
+                IF(mes_1 = 0, 'baja', IF(mes_2 = 0, 'baja', 'continua')) AS clase_binaria
+            FROM todo t
+            LEFT JOIN {table_name} c USING (numero_de_cliente, foto_mes)
+        ) 
+        SELECT * EXCLUDE (mes_0, mes_1, mes_2)
+        FROM clase_binaria
+        WHERE mes_0 = 1
+    """
+    
+    conn.execute(sql)
+    logger.info(f"Clase binaria generada exitosamente para {table_name}")
+    return conn
 
 def attributes_to_intergers(conn: duckdb.DuckDBPyConnection, table_name: str, cols_to_alter: list[str])-> duckdb.DuckDBPyConnection:
     for col in cols_to_alter:
@@ -37,15 +235,26 @@ def drop_columns(conn: duckdb.DuckDBPyConnection, table_name: str, cols_to_drop:
         conn.execute(f"ALTER TABLE {table_name} DROP COLUMN {col}")
     return conn
 
-def create_latest_and_earliest_credit_card_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, cols_pairs: list[str]) -> duckdb.DuckDBPyConnection:
+def create_latest_and_earliest_credit_card_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, cols_pairs: list[str]) -> tuple[duckdb.DuckDBPyConnection, list[str]]:
     # 1. Crear la lista de expresiones SQL para las nuevas columnas
     new_cols_sql = []
+    new_cols_names = []
+    
     for col1, col2, prefix in cols_pairs:
-        # Usamos format string para crear la expresión de cada columna
-        latest_expr = f"CAST(greatest({col1}, {col2}) AS INTEGER) AS {prefix}_latest"
-        earliest_expr = f"CAST(least({col1}, {col2}) AS INTEGER) AS {prefix}_earliest"
+        # Nombres de las nuevas columnas
+        latest_name = f"{prefix}_latest"
+        earliest_name = f"{prefix}_earliest"
+        
+        # Expresiones SQL
+        latest_expr = f"CAST(greatest({col1}, {col2}) AS INTEGER) AS {latest_name}"
+        earliest_expr = f"CAST(least({col1}, {col2}) AS INTEGER) AS {earliest_name}"
+        
         new_cols_sql.append(latest_expr)
         new_cols_sql.append(earliest_expr)
+        
+        # Guardar nombres (esto es Python puro, no pandas)
+        new_cols_names.append(latest_name)
+        new_cols_names.append(earliest_name)
 
     # 2. Unir las expresiones con comas
     new_cols_str = ", " + ", ".join(new_cols_sql)
@@ -59,8 +268,8 @@ def create_latest_and_earliest_credit_card_attributes(conn: duckdb.DuckDBPyConne
             {table_name}
     """
     
-    conn.execute(sql)
-    return conn
+    conn.execute(sql) 
+    return conn, new_cols_names 
 
 def create_sum_credit_card_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, cols_visa: list, cols_master: list)-> duckdb.DuckDBPyConnection:
     conn.execute("""
@@ -157,7 +366,7 @@ def create_lag_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excl
             FROM 
                 pragma_table_info('{table_name}')
             WHERE 
-                type NOT IN ('INTEGER', 'VARCHAR')
+                type NOT IN ('VARCHAR')
         """
     
     cols_numericas_list = conn.execute(sql_get_cols).fetchall()
@@ -217,7 +426,7 @@ def create_delta_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, ex
             FROM 
                 pragma_table_info('{table_name}')
             WHERE 
-                type NOT IN ('INTEGER', 'VARCHAR')
+                type NOT IN ('VARCHAR')
         """
     
     cols_numericas_list = conn.execute(sql_get_cols).fetchall()
@@ -276,7 +485,7 @@ def create_max_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excl
             FROM 
                 pragma_table_info('{table_name}')
             WHERE 
-                type NOT IN ('INTEGER', 'VARCHAR')
+                type NOT IN ('VARCHAR')
         """
     
     cols_numericas_list = conn.execute(sql_get_cols).fetchall()
@@ -339,7 +548,7 @@ def create_max_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excl
             FROM 
                 pragma_table_info('{table_name}')
             WHERE 
-                type NOT IN ('INTEGER', 'VARCHAR')
+                type NOT IN ('VARCHAR')
         """
     
     cols_numericas_list = conn.execute(sql_get_cols).fetchall()
@@ -474,7 +683,7 @@ def create_max_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excl
         FROM 
             pragma_table_info('{table_name}')
         WHERE 
-            type NOT IN ('INTEGER', 'VARCHAR')
+            type NOT IN ('VARCHAR')
     """
     
     cols_numericas_list = conn.execute(sql_get_cols).fetchall()
@@ -559,7 +768,7 @@ def create_min_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excl
         FROM 
             pragma_table_info('{table_name}')
         WHERE 
-            type NOT IN ('INTEGER', 'VARCHAR')
+            type NOT IN ('VARCHAR')
     """
     
     cols_numericas_list = conn.execute(sql_get_cols).fetchall()
@@ -644,7 +853,7 @@ def create_avg_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excl
         FROM 
             pragma_table_info('{table_name}')
         WHERE 
-            type NOT IN ('INTEGER', 'VARCHAR')
+            type NOT IN ('VARCHAR')
     """
     
     cols_numericas_list = conn.execute(sql_get_cols).fetchall()
@@ -720,3 +929,60 @@ def save_sql_table_to_parquet(conn: duckdb.DuckDBPyConnection, table_name: str, 
     
     logger.info(f"Tabla guardada exitosamente en {path}")
 
+def create_decile_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str]) -> duckdb.DuckDBPyConnection:
+    """
+    Genera variables de deciles para los atributos especificados.
+    Asigna a cada valor un decil (1-10) basado en su posición relativa en foto_mes.
+  
+    Parameters:
+    -----------
+    conn : duckdb.DuckDBPyConnection
+        Conexión a la tabla DuckDB con los datos.
+    excluir_columnas : list
+        Lista de atributos a excluir para los cuales generar deciles.
+  
+    Returns:
+    --------
+    duckdb.DuckDBPyConnection
+       Conexión a la tabla DuckDB con los datos con las variables de deciles agregadas.
+    """
+
+    logger.info(f"Realizando feature engineering con deciles para todos los atributos con excepción de las variables con tipo de dato INTEGER o VARCHAR y los {len(excluir_columnas)} atributos excluídos explícitamente según la lista {excluir_columnas}")
+
+    sql_get_cols = f"""
+            SELECT 
+                name 
+            FROM 
+                pragma_table_info('{table_name}')
+            WHERE 
+                type NOT IN ('INTEGER', 'VARCHAR')
+        """
+    
+    cols_numericas_list = conn.execute(sql_get_cols).fetchall()
+    cols_numericas = [c[0] for c in cols_numericas_list if c[0] not in excluir_columnas]
+
+    logger.info(f"Se generarán deciles para {len(cols_numericas)} columnas.")
+
+    if not cols_numericas:
+        logger.warning("No se encontraron columnas numéricas válidas para generar deciles. Devolviendo la conexión sin cambios.")
+        return conn
+    
+    new_cols_sql = []
+    for attr in cols_numericas:
+        # NTILE(10) divide en 10 grupos (deciles)
+        new_cols_sql.append(f"NTILE(10) OVER (PARTITION BY foto_mes ORDER BY {attr}) AS {attr}_decil")
+    
+    new_cols_str = ", " + ", ".join(new_cols_sql)
+
+    # Construir la consulta SQL
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        SELECT * {new_cols_str}
+        FROM {table_name}
+    """
+
+    logger.debug(f"Consulta SQL: {sql}")
+
+    # Ejecutar la consulta SQL
+    conn.execute(sql)
+    return conn

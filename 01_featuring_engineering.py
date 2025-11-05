@@ -37,21 +37,8 @@ def main():
         # 1. Cargar datos y crear tabla sql
         conn = create_sql_table(DATA_PATH, SQL_TABLE_NAME)
     
-        # 2. Setear atributos a tipo de dato INTERGER
-        columns_to_alter = [
-        "active_quarter",
-        "cliente_vip",
-        "tcuentas",
-        "cdescubierto_preacordado",
-        "tcallcenter",
-        "thomebanking",
-        "ccajas_transacciones",
-        "tmobile_app",
-        "cmobile_app_trx",
-        "Master_delinquency",
-        "Visa_delinquency"
-        ]
-        conn = attributes_to_intergers(conn, SQL_TABLE_NAME, columns_to_alter)
+        # 2. Columnas con baja cardinalidad
+        low_cardinality_cols = get_low_cardinality_columns(conn, SQL_TABLE_NAME, max_unique=10)
 
         # 3. Crear atributos tipo fecha mayor y menor para las tarjetas de crédito
         column_pairs = [
@@ -60,7 +47,7 @@ def main():
         ("Master_fultimo_cierre", "Visa_fultimo_cierre", "tc_fultimocierre"),
         ("Master_fechaalta", "Visa_fechaalta", "tc_fechaalta"),
         ]
-        conn = create_latest_and_earliest_credit_card_attributes(conn, SQL_TABLE_NAME, column_pairs)
+        conn, cols_tc_fecha = create_latest_and_earliest_credit_card_attributes(conn, SQL_TABLE_NAME, column_pairs)
 
         # 4. Borrar columnas tipo fecha individuales de las tarjetas de crédito máster y visa
         cols_to_drop = [
@@ -106,7 +93,7 @@ def main():
         conn = create_ratio_m_c_attributes(conn, SQL_TABLE_NAME)
 
         # 8. Crear atributos tipo lag
-        excluir_columnas_lag = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad']
+        excluir_columnas_lag = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_tc_fecha + low_cardinality_cols
         conn = create_lag_attributes(conn, SQL_TABLE_NAME, excluir_columnas_lag, cant_lag = 2)
 
         # 9. Crear atributos tipo delta
@@ -120,7 +107,7 @@ def main():
         
         cols_lag = conn.execute(sql_get_cols_lag).fetchall()
         cols_lag_list = [c[0] for c in cols_lag]
-        excluir_columnas_delta = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_list
+        excluir_columnas_delta = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_list + cols_tc_fecha + low_cardinality_cols
         conn = create_delta_attributes(conn, SQL_TABLE_NAME, excluir_columnas_delta, cant_delta = 2)
 
         # 10. Crear atributos tipo máximos ventana
@@ -136,7 +123,7 @@ def main():
         
         cols_lag_delta = conn.execute(sql_get_cols_lag_delta).fetchall()
         cols_lag_delta_list = [c[0] for c in cols_lag_delta]
-        excluir_columnas_max = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_list
+        excluir_columnas_max = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_list + cols_tc_fecha + low_cardinality_cols
         conn = create_max_attributes(conn, SQL_TABLE_NAME, excluir_columnas_max, month_window = 3)
 
         # 11. Crear atributos tipo mínimos ventana
@@ -153,7 +140,7 @@ def main():
         
         cols_lag_delta_max = conn.execute(sql_get_cols_lag_delta_max).fetchall()
         cols_lag_delta_max_list = [c[0] for c in cols_lag_delta_max]
-        excluir_columnas_min = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_max_list
+        excluir_columnas_min = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_max_list + cols_tc_fecha + low_cardinality_cols
         conn = create_min_attributes(conn, SQL_TABLE_NAME, excluir_columnas_min, month_window = 3)
 
         # 12. Crear atributos tipo promedio ventana
@@ -171,7 +158,7 @@ def main():
         
         cols_lag_delta_max_min = conn.execute(sql_get_cols_lag_delta_max_min).fetchall()
         cols_lag_delta_max_min_list = [c[0] for c in cols_lag_delta_max_min]
-        excluir_columnas_avg = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_max_min_list
+        excluir_columnas_avg = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_max_min_list + cols_tc_fecha + low_cardinality_cols
         conn = create_avg_attributes(conn, SQL_TABLE_NAME, excluir_columnas_avg, month_window = 3)
 
         # 13. Guardar el CSV con el FE

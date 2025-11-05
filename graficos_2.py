@@ -4,7 +4,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 # --- CONFIGURACIÓN ---
 CSV_PATH = 'data/datasets_competencia_02_crudo.csv.gz'
-OUTPUT_PDF = 'medias_por_columna_deciles.pdf'
+OUTPUT_PDF = 'medias_por_columna.pdf'
 
 # --- CONEXIÓN Y CARGA DE DATOS ---
 con = duckdb.connect()
@@ -22,31 +22,13 @@ cols_numericas = con.execute("""
       AND column_name != 'foto_mes';
 """).fetchdf()['column_name'].tolist()
 
-# --- CREAR TABLA CON DECILES ---
-# Construir la query dinámicamente para todas las columnas
-deciles_columns = []
-for col in cols_numericas:
-    deciles_columns.append(f"""
-        NTILE(10) OVER (PARTITION BY foto_mes ORDER BY {col}) AS {col}_decil
-    """)
-
-query_deciles = f"""
-    CREATE OR REPLACE TABLE datos_deciles AS
-    SELECT 
-        foto_mes,
-        {','.join(deciles_columns)}
-    FROM datos
-    WHERE {' AND '.join([f'{col} IS NOT NULL' for col in cols_numericas])}
-"""
-
-con.execute(query_deciles)
-
 # --- GENERAR Y GUARDAR GRÁFICOS ---
 with PdfPages(OUTPUT_PDF) as pdf:
     for col in cols_numericas:
         df = con.execute(f"""
-            SELECT foto_mes, AVG({col}_decil) AS media_decil
-            FROM datos_deciles
+            SELECT foto_mes, AVG({col}) AS media
+            FROM datos
+            WHERE {col} IS NOT NULL
             GROUP BY foto_mes
             ORDER BY foto_mes
         """).fetchdf()
@@ -56,12 +38,11 @@ with PdfPages(OUTPUT_PDF) as pdf:
 
         # Crear gráfico
         plt.figure(figsize=(10, 4))
-        plt.plot(df['foto_mes'], df['media_decil'], marker='o', linewidth=1.5)
-        plt.title(f'Media de Deciles de {col} por foto_mes')
+        plt.plot(df['foto_mes'], df['media'], marker='o', linewidth=1.5)
+        plt.title(f'Media de {col} por foto_mes')
         plt.xlabel('foto_mes')
-        plt.ylabel(f'Media de Deciles (1-10)')
-        plt.ylim(0, 11)  # Los deciles van de 1 a 10
-        plt.xticks(rotation=45, ha='right')  # Rotar etiquetas para mejor lectura
+        plt.ylabel(f'Media de {col}')
+        plt.xticks(rotation=45, ha='right')
         plt.grid(True)
         plt.tight_layout()
 
@@ -70,4 +51,4 @@ with PdfPages(OUTPUT_PDF) as pdf:
         plt.close()
 
 print(f"✅ PDF generado correctamente: {OUTPUT_PDF}")
-print(f"📊 Se graficaron {len(cols_numericas)} columnas transformadas a deciles")
+print(f"📊 Se graficaron {len(cols_numericas)} columnas")
