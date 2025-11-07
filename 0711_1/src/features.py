@@ -128,6 +128,44 @@ def get_low_cardinality_columns(conn: duckdb.DuckDBPyConnection, table_name: str
     
     return low_cardinality_cols
 
+def generar_targets(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
+    """
+    Genera target_binario y target_ternario en UNA SOLA pasada.
+    """
+    logger.info(f"Generando targets para tabla {table_name}")
+    
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        WITH periodos AS (
+            SELECT DISTINCT foto_mes FROM {table_name}
+        ), clientes AS (
+            SELECT DISTINCT numero_de_cliente FROM {table_name}
+        ), todo AS (
+            SELECT numero_de_cliente, foto_mes 
+            FROM clientes CROSS JOIN periodos
+        ), con_flags AS (
+            SELECT
+                c.*,
+                IF(c.numero_de_cliente IS NULL, 0, 1) AS mes_0,
+                LEAD(IF(c.numero_de_cliente IS NULL, 0, 1), 1) 
+                    OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_1,
+                LEAD(IF(c.numero_de_cliente IS NULL, 0, 1), 2) 
+                    OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_2
+            FROM todo t
+            LEFT JOIN {table_name} c USING (numero_de_cliente, foto_mes)
+        ) 
+        SELECT 
+            * EXCLUDE (mes_0, mes_1, mes_2),
+            IF(mes_1 = 0, 1, IF(mes_2 = 0, 1, 0)) AS target_binario,
+            IF(mes_1 = 0, 0, IF(mes_2 = 0, 1, 0)) AS target_ternario
+        FROM con_flags
+        WHERE mes_0 = 1
+    """
+
+    conn.execute(sql)
+    logger.info(f"Targets generados exitosamente")
+    return conn
+
 def clase_ternaria(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
     """
     Genera la tabla con clase_ternaria identificando bajas de clientes.
