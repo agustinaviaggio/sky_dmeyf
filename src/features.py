@@ -175,10 +175,10 @@ def clase_ternaria(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.D
     logger.info(f"Clase ternaria generada exitosamente para {table_name}")
     return conn
 
-def clase_binaria(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
+def target_binario(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
     """
     Genera la tabla con binaria identificando bajas de clientes.
-    Reemplaza la tabla original agregando la columna clase_binaria.
+    Reemplaza la tabla original agregando la columna target_binari0.
     
     Parameters:
     -----------
@@ -192,7 +192,7 @@ def clase_binaria(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.Du
     duckdb.DuckDBPyConnection
         Conexión con la tabla actualizada
     """
-    logger.info(f"Generando clase_binaria para tabla {table_name}")
+    logger.info(f"Generando target_binario para tabla {table_name}")
     
     sql = f"""
         CREATE OR REPLACE TABLE {table_name} AS
@@ -203,21 +203,64 @@ def clase_binaria(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.Du
         ), todo AS (
             SELECT numero_de_cliente, foto_mes 
             FROM clientes CROSS JOIN periodos
-        ), clase_binaria AS (
+        ), target_binario AS (
             SELECT
                 c.*,
                 IF(c.numero_de_cliente IS NULL, 0, 1) AS mes_0,
                 LEAD(mes_0, 1) OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_1,
                 LEAD(mes_0, 2) OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_2,
-                IF(mes_1 = 0, 'baja', IF(mes_2 = 0, 'baja', 'continua')) AS clase_binaria
+                IF(mes_1 = 0, 1, IF(mes_2 = 0, 1, 0)) AS target_binario
             FROM todo t
             LEFT JOIN {table_name} c USING (numero_de_cliente, foto_mes)
         ) 
         SELECT * EXCLUDE (mes_0, mes_1, mes_2)
-        FROM clase_binaria
+        FROM target_binario
         WHERE mes_0 = 1
     """
     
+def target_ternario(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
+    """
+    Genera la tabla con binaria identificando bajas de clientes.
+    Reemplaza la tabla original agregando la columna target_ternario.
+    
+    Parameters:
+    -----------
+    conn : duckdb.DuckDBPyConnection
+        Conexión a DuckDB
+    table_name : str
+        Nombre de la tabla a procesar
+    
+    Returns:
+    --------
+    duckdb.DuckDBPyConnection
+        Conexión con la tabla actualizada
+    """
+    logger.info(f"Generando target_ternario para tabla {table_name}")
+    
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        WITH periodos AS (
+            SELECT DISTINCT foto_mes FROM {table_name}
+        ), clientes AS (
+            SELECT DISTINCT numero_de_cliente FROM {table_name}
+        ), todo AS (
+            SELECT numero_de_cliente, foto_mes 
+            FROM clientes CROSS JOIN periodos
+        ), target_ternario AS (
+            SELECT
+                c.*,
+                IF(c.numero_de_cliente IS NULL, 0, 1) AS mes_0,
+                LEAD(mes_0, 1) OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_1,
+                LEAD(mes_0, 2) OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_2,
+                IF(mes_1 = 0, 0, IF(mes_2 = 0, 1, 0)) AS target_ternario
+            FROM todo t
+            LEFT JOIN {table_name} c USING (numero_de_cliente, foto_mes)
+        ) 
+        SELECT * EXCLUDE (mes_0, mes_1, mes_2)
+        FROM target_ternario
+        WHERE mes_0 = 1
+    """
+
     conn.execute(sql)
     logger.info(f"Clase binaria generada exitosamente para {table_name}")
     return conn
@@ -458,7 +501,7 @@ def create_delta_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, ex
     conn.execute(sql)
     return conn
 
-def create_max_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], month_window: int = 1) -> duckdb.DuckDBPyConnection:
+'''def create_max_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], month_window: int = 1) -> duckdb.DuckDBPyConnection:
     """
     Genera variables de valores máximos por ventana temporal para los atributos especificados y reemplaza la tabla.
   
@@ -521,7 +564,7 @@ def create_max_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excl
 
     return conn
 
-'''def create_min_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], month_window: int = 1) -> duckdb.DuckDBPyConnection:
+def create_min_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], month_window: int = 1) -> duckdb.DuckDBPyConnection:
     """
     Genera variables de valores mínimos por ventana temporal para los atributos especificados y reemplaza la tabla.
   
