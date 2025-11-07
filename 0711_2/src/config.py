@@ -17,6 +17,8 @@ try:
         BUCKET_NAME = _cfg["BUCKET_NAME"]
         SQL_TABLE_NAME = _cfg['SQL_TABLE_NAME']
         SEMILLAS = _cfg["SEMILLAS"]
+        MESES_TRAIN = _cfg["MESES_TRAIN"]
+        MESES_VAL = _cfg["MESES_VAL"]
         GANANCIA_ACIERTO = _cfg["GANANCIA_ACIERTO"]
         COSTO_ESTIMULO = _cfg["COSTO_ESTIMULO"]
 
