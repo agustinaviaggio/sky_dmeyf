@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 import os
 
-from src.features import create_sql_table, target_binario, target_ternario, generar_targets
+from src.features import create_sql_table, target_binario, target_ternario
 from src.optimization_duck import optimizar
 from src.config import *
 
