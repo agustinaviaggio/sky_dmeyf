@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 import os
 
-from src.features import create_sql_table, target_binario, target_ternario
+from src.features import create_sql_table, target_binario, target_ternario, generar_targets
 from src.optimization_duck import optimizar
 from src.config import *
 
@@ -42,8 +42,9 @@ def main():
     try:  
         # 1. Cargar datos y crear tabla sql
         conn = create_sql_table(DATA_PATH, SQL_TABLE_NAME)
-        conn = target_binario(conn, SQL_TABLE_NAME)
-        conn = target_ternario(conn, SQL_TABLE_NAME)
+        #conn = target_binario(conn, SQL_TABLE_NAME)
+        #conn = target_ternario(conn, SQL_TABLE_NAME)
+        conn = generar_targets(conn, SQL_TABLE_NAME)
   
         # 2. Ejecutar optimización
         study = optimizar(conn, SQL_TABLE_NAME, n_trials=5)
