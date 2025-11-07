@@ -301,6 +301,31 @@ def target_ternario(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.
     logger.info(f"Target ternario generada exitosamente para {table_name}")
     return conn
 
+def generar_targets(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
+    logger.info(f"Generando target binario y ternario para tabla {table_name}")
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        WITH todo AS (...),
+        con_leads AS (
+            SELECT
+                c.*,
+                IF(c.numero_de_cliente IS NULL, 0, 1) AS mes_0,
+                LEAD(mes_0, 1) OVER (...) AS mes_1,
+                LEAD(mes_0, 2) OVER (...) AS mes_2
+            FROM todo t
+            LEFT JOIN {table_name} c USING (...)
+        )
+        SELECT 
+            * EXCLUDE (mes_0, mes_1, mes_2),
+            IF(mes_1 = 0, 1, IF(mes_2 = 0, 1, 0)) AS target_binario,
+            IF(mes_1 = 0, 0, IF(mes_2 = 0, 1, 0)) AS target_ternario
+        FROM con_leads
+        WHERE mes_0 = 1
+    """
+    conn.execute(sql)
+    logger.info(f"Target ternario generada exitosamente para {table_name}")
+    return conn
+
 def attributes_to_intergers(conn: duckdb.DuckDBPyConnection, table_name: str, cols_to_alter: list[str])-> duckdb.DuckDBPyConnection:
     for col in cols_to_alter:
         conn.execute(f"""
