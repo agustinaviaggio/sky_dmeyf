@@ -71,7 +71,7 @@ def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
         logger.error(f"Error al cargar el dataset: {e}")
         conn.close()
         raise
-    
+
 def classify_data_types(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
     """
     Crea una tabla con el esquema clasificado en:
@@ -249,6 +249,10 @@ def target_binario(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.D
         FROM target_binario
         WHERE mes_0 = 1
     """
+
+    conn.execute(sql)
+    logger.info(f"Target binario generada exitosamente para {table_name}")
+    return conn
     
 def target_ternario(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
     """
@@ -294,7 +298,7 @@ def target_ternario(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.
     """
 
     conn.execute(sql)
-    logger.info(f"Clase binaria generada exitosamente para {table_name}")
+    logger.info(f"Target ternario generada exitosamente para {table_name}")
     return conn
 
 def attributes_to_intergers(conn: duckdb.DuckDBPyConnection, table_name: str, cols_to_alter: list[str])-> duckdb.DuckDBPyConnection:
