@@ -1,0 +1,18 @@
+# ==========================================================
+# conf.yaml
+# ==========================================================
+
+# Parámetros Globales (Directamente mapeados a variables en config.py)
+STUDY_NAME: "Competencia02"
+
+configuracion:
+    # Ruta al archivo de datos de entrada
+    DATA_PATH: "~/data/competencia_02_FE.parquet"
+    BUCKET_NAME: "~/buckets/b1"
+    SQL_TABLE_NAME: "tabla_test"
+    SEMILLAS: [600011, 600043, 600053, 600071, 600073]
+    MESES_TRAIN: "202102"
+    MES_VALIDACION: "202103"
+    MES_TEST: "202104"
+    GANANCIA_ACIERTO: 780000
+    COSTO_ESTIMULO: 20000
