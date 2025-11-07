@@ -10,7 +10,7 @@ PATH_CONFIG = os.path.join(os.path.dirname(os.path.dirname(__file__)), "conf.yam
 try:
     with open(PATH_CONFIG, "r") as f:
         _cfgGeneral = yaml.safe_load(f)
-        _cfg = _cfgGeneral["01_FE"]
+        _cfg = _cfgGeneral["configuracion"]
 
         STUDY_NAME = _cfgGeneral["STUDY_NAME"]
         DATA_PATH = _cfg["DATA_PATH"]
