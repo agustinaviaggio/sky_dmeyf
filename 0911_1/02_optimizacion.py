@@ -57,7 +57,15 @@ def main():
         for trial in trials_ordenados:
             logger.info(f"  Trial {trial.number}: {trial.value:,.0f}")
 
+        # Análisis de feature importance del mejor trial
+        logger.info("=== FEATURE IMPORTANCE DEL MEJOR TRIAL ===")
+        best_trial = study.best_trial
+        top_features = best_trial.user_attrs.get('top_features', [])
+        top_importance = best_trial.user_attrs.get('top_importance', [])
 
+        logger.info("Top 10 features más importantes:")
+        for name, importance in zip(top_features, top_importance):
+            logger.info(f"  {name}: {importance:,.0f}")
 
 
         logger.info("=== OPTIMIZACIÓN COMPLETADA ===")
