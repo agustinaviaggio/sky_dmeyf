@@ -92,5 +92,13 @@ def ganancia_evaluator(y_pred, y_true) -> float:
   
     # Encontrar la ganancia máxima
     ganancia_maxima = df_ordenado.select(pl.col('ganancia_acumulada').max()).item()
+
+    # LOGS DE DIAGNÓSTICO
+    logger.debug(f"Total registros: {len(df_ordenado)}")
+    logger.debug(f"Target=1 (bajas+2): {(y_true == 1).sum()}")
+    logger.debug(f"Target=0 (continúa): {(y_true == 0).sum()}")
+    logger.debug(f"GANANCIA_ACIERTO: {GANANCIA_ACIERTO}")
+    logger.debug(f"COSTO_ESTIMULO: {COSTO_ESTIMULO}")
+
   
     return 'ganancia', ganancia_maxima, True
