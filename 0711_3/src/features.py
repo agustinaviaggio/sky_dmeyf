@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
         conn.close()
         raise'''
 
-def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
-    '''
-    Carga un CSV desde 'path' en una tabla DuckDB en memoria y retorna 
-    el objeto de conexión para interactuar con esa tabla.
-    '''
+'''def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
+    
+    #Carga un CSV desde 'path' en una tabla DuckDB en memoria y retorna 
+    #el objeto de conexión para interactuar con esa tabla.
+    
     logger.info(f"Cargando dataset desde {path}")
     conn = duckdb.connect(database=':memory:')
     try:        
@@ -33,6 +33,38 @@ def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
             SELECT *
             FROM read_csv_auto('{path}', auto_type_candidates=['VARCHAR', 'FLOAT', 'INTEGER'])
         """)
+        return conn
+    
+    except Exception as e:
+        logger.error(f"Error al cargar el dataset: {e}")
+        conn.close()
+        raise'''
+
+def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
+    '''
+    Carga un CSV o Parquet desde 'path' en una tabla DuckDB en memoria y retorna 
+    el objeto de conexión para interactuar con esa tabla.
+    '''
+    logger.info(f"Cargando dataset desde {path}")
+    conn = duckdb.connect(database=':memory:')
+    
+    try:
+        # Detectar el tipo de archivo por extensión
+        if path.lower().endswith('.parquet'):
+            conn.execute(f"""
+                CREATE OR REPLACE TABLE {table_name} AS
+                SELECT *
+                FROM read_parquet('{path}')
+            """)
+        elif path.lower().endswith('.csv'):
+            conn.execute(f"""
+                CREATE OR REPLACE TABLE {table_name} AS
+                SELECT *
+                FROM read_csv_auto('{path}', auto_type_candidates=['VARCHAR', 'FLOAT', 'INTEGER'])
+            """)
+        else:
+            raise ValueError(f"Formato de archivo no soportado: {path}")
+        
         return conn
     
     except Exception as e:
@@ -128,44 +160,6 @@ def get_low_cardinality_columns(conn: duckdb.DuckDBPyConnection, table_name: str
     
     return low_cardinality_cols
 
-def generar_targets(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
-    """
-    Genera target_binario y target_ternario en UNA SOLA pasada.
-    """
-    logger.info(f"Generando targets para tabla {table_name}")
-    
-    sql = f"""
-        CREATE OR REPLACE TABLE {table_name} AS
-        WITH periodos AS (
-            SELECT DISTINCT foto_mes FROM {table_name}
-        ), clientes AS (
-            SELECT DISTINCT numero_de_cliente FROM {table_name}
-        ), todo AS (
-            SELECT numero_de_cliente, foto_mes 
-            FROM clientes CROSS JOIN periodos
-        ), con_flags AS (
-            SELECT
-                c.*,
-                IF(c.numero_de_cliente IS NULL, 0, 1) AS mes_0,
-                LEAD(IF(c.numero_de_cliente IS NULL, 0, 1), 1) 
-                    OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_1,
-                LEAD(IF(c.numero_de_cliente IS NULL, 0, 1), 2) 
-                    OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_2
-            FROM todo t
-            LEFT JOIN {table_name} c USING (numero_de_cliente, foto_mes)
-        ) 
-        SELECT 
-            * EXCLUDE (mes_0, mes_1, mes_2),
-            IF(mes_1 = 0, 1, IF(mes_2 = 0, 1, 0)) AS target_binario,
-            IF(mes_1 = 0, 0, IF(mes_2 = 0, 1, 0)) AS target_ternario
-        FROM con_flags
-        WHERE mes_0 = 1
-    """
-
-    conn.execute(sql)
-    logger.info(f"Targets generados exitosamente")
-    return conn
-
 def clase_ternaria(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
     """
     Genera la tabla con clase_ternaria identificando bajas de clientes.
@@ -255,6 +249,11 @@ def target_binario(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.D
         FROM target_binario
         WHERE mes_0 = 1
     """
+
+    conn.execute(sql)
+
+    logger.info(f"Target binario generada exitosamente para {table_name}")
+    return conn
     
 def target_ternario(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
     """
@@ -291,6 +290,7 @@ def target_ternario(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.
                 LEAD(mes_0, 1) OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_1,
                 LEAD(mes_0, 2) OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_2,
                 IF(mes_1 = 0, 0, IF(mes_2 = 0, 1, 0)) AS target_ternario
+                
             FROM todo t
             LEFT JOIN {table_name} c USING (numero_de_cliente, foto_mes)
         ) 
@@ -300,7 +300,46 @@ def target_ternario(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.
     """
 
     conn.execute(sql)
-    logger.info(f"Clase binaria generada exitosamente para {table_name}")
+
+    logger.info(f"Target ternario generada exitosamente para {table_name}")
+    return conn
+
+def generar_targets(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
+    """
+    Genera target_binario y target_ternario en UNA SOLA pasada.
+    """
+    logger.info(f"Generando targets para tabla {table_name}")
+    
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        WITH periodos AS (
+            SELECT DISTINCT foto_mes FROM {table_name}
+        ), clientes AS (
+            SELECT DISTINCT numero_de_cliente FROM {table_name}
+        ), todo AS (
+            SELECT numero_de_cliente, foto_mes 
+            FROM clientes CROSS JOIN periodos
+        ), con_flags AS (
+            SELECT
+                c.*,
+                IF(c.numero_de_cliente IS NULL, 0, 1) AS mes_0,
+                LEAD(IF(c.numero_de_cliente IS NULL, 0, 1), 1) 
+                    OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_1,
+                LEAD(IF(c.numero_de_cliente IS NULL, 0, 1), 2) 
+                    OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_2
+            FROM todo t
+            LEFT JOIN {table_name} c USING (numero_de_cliente, foto_mes)
+        ) 
+        SELECT 
+            * EXCLUDE (mes_0, mes_1, mes_2),
+            IF(mes_1 = 0, 1, IF(mes_2 = 0, 1, 0)) AS target_binario,
+            IF(mes_1 = 0, 0, IF(mes_2 = 0, 1, 0)) AS target_ternario
+        FROM con_flags
+        WHERE mes_0 = 1
+    """
+
+    conn.execute(sql)
+    logger.info(f"Targets generados exitosamente")
     return conn
 
 def attributes_to_intergers(conn: duckdb.DuckDBPyConnection, table_name: str, cols_to_alter: list[str])-> duckdb.DuckDBPyConnection:

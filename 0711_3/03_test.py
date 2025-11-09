@@ -3,7 +3,7 @@ from datetime import datetime
 import os
 
 from src.features import create_sql_table
-from src.optimization_duck import optimizar
+from src.optimization_duck import evaluar_en_test, guardar_resultados_test
 from src.config import *
 
 ### Configuración de logging ###

@@ -161,7 +161,10 @@ def main():
         excluir_columnas_avg = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_max_min_list + cols_tc_fecha + low_cardinality_cols
         conn = create_avg_attributes(conn, SQL_TABLE_NAME, excluir_columnas_avg, month_window = 3)
 
-        # 13. Guardar el CSV con el FE
+        # 13. generar targets para optimización y entrenamiento
+        conn = generar_targets(conn, SQL_TABLE_NAME)
+
+        # 14. Guardar el CSV con el FE
         save_sql_table_to_parquet(conn,SQL_TABLE_NAME, OUTPUT_PATH)
 
     except Exception as e:
