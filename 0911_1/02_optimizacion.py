@@ -80,7 +80,7 @@ def main():
   
         # Resumen de evaluación en test
         logger.info("=== RESUMEN DE EVALUACIÓN EN TEST ===")
-        logger.info(f"Ganancia en test: {resultados_test[0]:,.0f}")
+        logger.info(f"Ganancia en test: {resultados_test['ganancia_test']:,.0f}")
     
     except Exception as e:
         logger.error(f"Error durante la ejecución del pipeline: {e}")
