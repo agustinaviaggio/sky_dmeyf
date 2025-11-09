@@ -48,7 +48,7 @@ def main():
         #conn = generar_targets(conn, SQL_TABLE_NAME)
   
         # 2. Ejecutar optimización
-        study = optimizar(conn, SQL_TABLE_NAME, n_trials=5)
+        study = optimizar(conn, SQL_TABLE_NAME, n_trials=1)
     
         # 5. Análisis adicional
         logger.info("=== ANÁLISIS DE RESULTADOS ===")
@@ -56,7 +56,10 @@ def main():
         logger.info("Top 5 mejores trials:")
         for trial in trials_ordenados:
             logger.info(f"  Trial {trial.number}: {trial.value:,.0f}")
-    
+
+
+
+
         logger.info("=== OPTIMIZACIÓN COMPLETADA ===")
 
         logger.info("=== EVALUACIÓN EN CONJUNTO DE TEST ===")

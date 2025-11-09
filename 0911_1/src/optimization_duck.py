@@ -100,6 +100,15 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
     _, ganancia_val, _ = ganancia_evaluator(y_pred, lgb.Dataset(X_val, label=y_val))
     trial.set_user_attr('best_iteration', model.best_iteration)
     
+    # Guardar feature importance
+    feature_importance = model.feature_importance()
+    feature_names = model.feature_name()
+    top_10 = sorted(zip(feature_names, feature_importance), 
+                    key=lambda x: x[1], reverse=True)[:10]
+
+    trial.set_user_attr('top_features', [name for name, _ in top_10])
+    trial.set_user_attr('top_importance', [float(imp) for _, imp in top_10])
+
     # Guardar iteración
     guardar_iteracion(trial, ganancia_val)
     
