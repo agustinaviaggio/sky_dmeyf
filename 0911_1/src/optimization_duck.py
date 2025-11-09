@@ -113,9 +113,16 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
     guardar_iteracion(trial, ganancia_val)
     
     logger.debug(f"Trial {trial.number}: Ganancia = {ganancia_val:,.0f}")
-    
-    return ganancia_val
 
+    # Antes de return ganancia_val
+    logger.info(f"Trial {trial.number} - Ganancia: {ganancia_val:,.0f}")
+    logger.info(f"Trial {trial.number} - Best iteration: {model.best_iteration}")
+    logger.info(f"Trial {trial.number} - Params: {trial.params}")
+    logger.info(f"Trial {trial.number} - Predicciones únicas: {len(np.unique(y_pred))}")
+    logger.info(f"Trial {trial.number} - Rango predicciones: [{y_pred.min():.4f}, {y_pred.max():.4f}]")
+    logger.info(f"Trial {trial.number} - Target ternario = 1: {(y_val == 1).sum()} de {len(y_val)}")
+
+    return ganancia_val
 
 def guardar_iteracion(trial, ganancia, archivo_base=None):
     """
