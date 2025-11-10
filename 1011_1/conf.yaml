@@ -9,8 +9,8 @@ configuracion:
     # Ruta al archivo de datos de entrada
     DATA_PATH_OPT: "~/data/competencia_02_FE.parquet"
     #DATA_PATH_OPT: "~/data/competencia_01_FE_v1.parquet"
-    #DATA_PATH_FE: "~/buckets/b1/datasets/competencia_01_crudo.csv"
-    #OUTPUT_PATH_FE: "~/buckets/b1/datasets/competencia_01_FE_v1.parquet"
+    DATA_PATH_FE: "~/buckets/b1/datasets/competencia_01_crudo.csv"
+    OUTPUT_PATH_FE: "~/buckets/b1/datasets/competencia_01_FE_v1.parquet"
     BUCKET_NAME: "~/buckets/b1/"
     SQL_TABLE_NAME: "tabla_sql"
     #SEMILLAS: [600011, 600043, 600053, 600071, 600073]
