@@ -189,19 +189,10 @@ def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optun
         semilla = SEMILLAS[0] if isinstance(SEMILLAS, list) else SEMILLAS
     
     bucket_path = os.path.expanduser(BUCKET_NAME)
-
-    logger.info(f"🔍 BUCKET_NAME desde config: {BUCKET_NAME}")
-    logger.info(f"🔍 bucket_path expandido: {bucket_path}")
-    logger.info(f"🔍 ¿Existe bucket_path? {os.path.exists(bucket_path)}")
   
     # Crear carpeta para bases de datos si no existe
-    path_db = os.path.join(bucket_path, "optuna_db")  # ← Usar bucket_path, no BUCKET_NAME
-
-    logger.info(f"🔍 path_db completo: {path_db}")
-    logger.info(f"🔍 ¿Existe path_db ANTES de makedirs? {os.path.exists(path_db)}")
-
+    path_db = os.path.join(bucket_path, "optuna_db")
     os.makedirs(path_db, exist_ok=True)
-    logger.info(f"🔍 ¿Existe path_db DESPUÉS de makedirs? {os.path.exists(path_db)}")
 
     # Ruta completa de la base de datos
     db_file = os.path.join(path_db, f"{study_name}.db")
@@ -406,8 +397,13 @@ def guardar_resultados_test(resultados_test, archivo_base=None):
     if archivo_base is None:
         archivo_base = STUDY_NAME
     
-    archivo = f"resultados/{archivo_base}_test_results.json"
-    os.makedirs('resultados', exist_ok=True)
+    bucket_path = os.path.expanduser(BUCKET_NAME)
+
+    path_db = os.path.join(bucket_path, "optuna_db")
+    os.makedirs(path_db, exist_ok=True)
+
+    resultados = os.path.join(bucket_path, f"resultados_test/{archivo_base}_test_results.json")
+    os.makedirs(resultados, exist_ok=True)
     
     # Agregar timestamp
     resultados_test['datetime'] = datetime.now().isoformat()
@@ -418,10 +414,10 @@ def guardar_resultados_test(resultados_test, archivo_base=None):
         'mes_test': MES_TEST
     }
     
-    with open(archivo, 'w') as f:
+    with open(resultados, 'w') as f:
         json.dump(resultados_test, f, indent=2)
     
-    logger.info(f"Resultados de test guardados en {archivo}")
+    logger.info(f"Resultados de test guardados en {resultados}")
 
 
 # Uso
