@@ -369,6 +369,7 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study) -> dict:
         pl.when(pl.col('y_true') == 1)
           .then(GANANCIA_ACIERTO)
           .otherwise(-COSTO_ESTIMULO)
+          .cast(pl.Int64)
           .alias('ganancia_individual')
     ])
     df_ordenado = df_ordenado.with_columns([
