@@ -60,8 +60,7 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
     val_data = conn.execute(query_val).fetchnumpy()
     
     # Preparar features y target
-    feature_cols = [col for col in train_data.keys() 
-                    if col not in ['target_binario', 'target_ternario']]
+    feature_cols = [col for col in train_data.keys() if col != ['clase_ternaria','target_binario','target_ternario']]
     
     X_train = np.column_stack([train_data[col] for col in feature_cols])
     y_train = train_data['target_binario']
@@ -100,29 +99,13 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
     _, ganancia_val, _ = ganancia_evaluator(y_pred, lgb.Dataset(X_val, label=y_val))
     trial.set_user_attr('best_iteration', model.best_iteration)
     
-    # Guardar feature importance
-    feature_importance = model.feature_importance()
-    feature_names = model.feature_name()
-    top_10 = sorted(zip(feature_names, feature_importance), 
-                    key=lambda x: x[1], reverse=True)[:10]
-
-    trial.set_user_attr('top_features', [name for name, _ in top_10])
-    trial.set_user_attr('top_importance', [float(imp) for _, imp in top_10])
-
     # Guardar iteración
     guardar_iteracion(trial, ganancia_val)
     
     logger.debug(f"Trial {trial.number}: Ganancia = {ganancia_val:,.0f}")
-
-    # Antes de return ganancia_val
-    logger.info(f"Trial {trial.number} - Ganancia: {ganancia_val:,.0f}")
-    logger.info(f"Trial {trial.number} - Best iteration: {model.best_iteration}")
-    logger.info(f"Trial {trial.number} - Params: {trial.params}")
-    logger.info(f"Trial {trial.number} - Predicciones únicas: {len(np.unique(y_pred))}")
-    logger.info(f"Trial {trial.number} - Rango predicciones: [{y_pred.min():.4f}, {y_pred.max():.4f}]")
-    logger.info(f"Trial {trial.number} - Target ternario = 1: {(y_val == 1).sum()} de {len(y_val)}")
-
+    
     return ganancia_val
+
 
 def guardar_iteracion(trial, ganancia, archivo_base=None):
     """
@@ -187,27 +170,14 @@ def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optun
   
     if semilla is None:
         semilla = SEMILLAS[0] if isinstance(SEMILLAS, list) else SEMILLAS
-    
-    logger.info(f"🔍 BUCKET_NAME desde config: {BUCKET_NAME}")
-    logger.info(f"🔍 ¿Existe bucket_path? {os.path.exists(BUCKET_NAME)}")
   
     # Crear carpeta para bases de datos si no existe
     path_db = os.path.join(BUCKET_NAME, "optuna_db")
-
-    logger.info(f"🔍 path_db completo: {path_db}")
-    logger.info(f"🔍 ¿Existe path_db ANTES de makedirs? {os.path.exists(path_db)}")
-
     os.makedirs(path_db, exist_ok=True)
-    logger.info(f"🔍 ¿Existe path_db DESPUÉS de makedirs? {os.path.exists(path_db)}")
-
-
+  
     # Ruta completa de la base de datos
     db_file = os.path.join(path_db, f"{study_name}.db")
     storage = f"sqlite:///{db_file}"
-
-    logger.info(f"🔍 Ruta completa del archivo .db: {db_file}")
-    logger.info(f"🔍 Storage string: {storage}")
-    logger.info(f"🔍 ¿Existe el archivo .db? {os.path.exists(db_file)}")
   
     # Verificar si existe un estudio previo
     if os.path.exists(db_file):
@@ -237,9 +207,7 @@ def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optun
     study = optuna.create_study(
         direction='maximize',
         study_name=STUDY_NAME,
-        storage=storage,
-        sampler=optuna.samplers.TPESampler(seed=SEMILLAS[0]),
-        load_if_exists=True
+        sampler=optuna.samplers.TPESampler(seed=SEMILLAS[0])
     )
   
     logger.info(f"Nuevo estudio creado: {study_name}")
@@ -336,7 +304,7 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study) -> dict:
     logger.info(f"Train completo: {len(y_train_completo)} registros")
     logger.info(f"Test: {len(y_test)} registros")
     
-    # Entrenar con mejores parámetros
+    # Entrenar con mejores parámetros (sin early stopping en test final)
     train_set = lgb.Dataset(
         X_train_completo,
         label=y_train_completo,
@@ -354,7 +322,7 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study) -> dict:
     y_pred_proba = model.predict(X_test)
     
     # Calcular ganancia usando tu función que no necesita threshold
-    _, ganancia_test, _ = ganancia_evaluator(y_pred_proba, lgb.Dataset(X_test, label=y_test))
+    ganancia_test = calcular_ganancia_maxima(y_test, y_pred_proba)
     
     # Estadísticas: contar cuántos estarían en el corte óptimo
     # (opcional, si querés saber cuántos enviarías)
@@ -409,7 +377,7 @@ def guardar_resultados_test(resultados_test, archivo_base=None):
     # Agregar timestamp
     resultados_test['datetime'] = datetime.now().isoformat()
     resultados_test['configuracion'] = {
-        'semilla': SEMILLAS[0],
+        'semilla': SEMILLA,
         'meses_train': MESES_TRAIN,
         'mes_validacion': MES_VALIDACION,
         'mes_test': MES_TEST
