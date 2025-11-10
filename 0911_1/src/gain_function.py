@@ -87,9 +87,16 @@ def ganancia_evaluator(y_pred, y_true) -> float:
     # Calcular ganancia individual para cada cliente
     df_ordenado = df_ordenado.with_columns([pl.when(pl.col('y_true') == 1).then(GANANCIA_ACIERTO).otherwise(-COSTO_ESTIMULO).alias('ganancia_individual')])
   
+    logger.info(df_ordenado.dtypes)
+    logger.info(f"GANANCIA_ACIERTO tipo: {type(GANANCIA_ACIERTO)} valor: {GANANCIA_ACIERTO}")
+    logger.info(f"COSTO_ESTIMULO tipo: {type(COSTO_ESTIMULO)} valor: {COSTO_ESTIMULO}")
+
     # Calcular ganancia acumulada
     df_ordenado = df_ordenado.with_columns([pl.col('ganancia_individual').cum_sum().alias('ganancia_acumulada')])
   
+    logger.info(df_ordenado['ganancia_acumulada'].dtype)
+    logger.info(df_ordenado['ganancia_acumulada'].head(10))
+
     # Encontrar la ganancia máxima
     ganancia_maxima = df_ordenado.select(pl.col('ganancia_acumulada').max()).item()
 
