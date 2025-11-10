@@ -325,8 +325,8 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
     logger.info(f"Train completo: {len(y_train_completo)} registros")
     logger.info(f"Test: {len(y_test)} registros")
 
-    models = [0,0,0,0,0]
-    y_pred_futuro = [0,0,0,0,0]
+    models = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    y_pred_futuro = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
     
     # Entrenar con mejores parámetros
     for i in range(len(SEMILLAS)):       
@@ -365,7 +365,10 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
         )
     
         # Predecir en test
-        y_pred_futuro = models[i].predict(X_test)
+        y_pred_futuro[i] = models[i].predict(X_test)
+        logger.info(f"Entrenamiento con semilla {i} de {len(SEMILLAS)} completadas")
+        _, ganancia_test_semilla, _ = ganancia_evaluator(y_pred_futuro[i], lgb.Dataset(X_test, label=y_test))
+        logger.info(f"Ganancia en test para esta semilla: {ganancia_test_semilla:,.0f}")
     
     pred_matrix = np.column_stack(y_pred_futuro)
     y_pred_promedio = pred_matrix.mean(axis=1) 
