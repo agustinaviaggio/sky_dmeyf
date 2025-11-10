@@ -400,6 +400,20 @@ def guardar_resultados_test(resultados_test, mes_test, archivo_base=None):
 
     archivo_json = os.path.join(path_resultados, f"{archivo_base}_test_results.json")
     
+    # Cargar resultados existentes si el archivo ya existe
+    if os.path.exists(archivo_json):
+        with open(archivo_json, 'r') as f:
+            try:
+                datos_existentes = json.load(f)
+                # Asegurarse de que sea una lista
+                if not isinstance(datos_existentes, list):
+                    datos_existentes = [datos_existentes]
+            except json.JSONDecodeError:
+                logger.warning(f"No se pudo leer {archivo_json}, creando nuevo archivo")
+                datos_existentes = []
+    else:
+        datos_existentes = []
+
     # Agregar timestamp
     resultados_test['datetime'] = datetime.now().isoformat()
     resultados_test['configuracion'] = {
@@ -408,10 +422,14 @@ def guardar_resultados_test(resultados_test, mes_test, archivo_base=None):
         'mes_test': mes_test
     }
     
+    datos_existentes.append(resultados_test)
+
+    # Guardar todos los resultados
     with open(archivo_json, 'w') as f:
-        json.dump(resultados_test, f, indent=2)
+        json.dump(datos_existentes, f, indent=2)
     
     logger.info(f"Resultados de test guardados en {archivo_json}")
+    logger.info(f"Total de evaluaciones acumuladas: {len(datos_existentes)}")
 
 
 # Uso

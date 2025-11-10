@@ -27,7 +27,7 @@ logger.info("Iniciando programa de optimización con log fechado")
 ### Manejo de Configuración en YAML ###
 logger.info("Configuración cargada desde YAML")
 logger.info(f"STUDY_NAME: {STUDY_NAME}")
-logger.info(f"DATA_PATH: {DATA_PATH}")
+logger.info(f"DATA_PATH_OPT: {DATA_PATH_OPT}")
 logger.info(f"SEMILLAS: {SEMILLAS}")
 logger.info(f"MESES_TRAIN: {MESES_TRAIN}")
 logger.info(f"MES_VALIDACION: {MES_VALIDACION}")
@@ -42,7 +42,7 @@ def main():
     conn = None # Inicializamos la conexión a None
     try:  
         # 1. Cargar datos y crear tabla sql
-        conn = create_sql_table(DATA_PATH, SQL_TABLE_NAME)
+        conn = create_sql_table(DATA_PATH_OPT, SQL_TABLE_NAME)
   
         # 2. Ejecutar optimización
         study = optimizar(conn, SQL_TABLE_NAME, n_trials=2)

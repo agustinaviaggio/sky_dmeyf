@@ -13,7 +13,9 @@ try:
         _cfg = _cfgGeneral["configuracion"]
 
         STUDY_NAME = _cfgGeneral["STUDY_NAME"]
-        DATA_PATH = _cfg["DATA_PATH"]
+        DATA_PATH_OPT = _cfg["DATA_PATH_OPT"]
+        DATA_PATH_FE = _cfg["DATA_PATH_FE"]
+        OUTPUT_PATH_FE = _cfg["OUTPUT_PATH_FE"]
         BUCKET_NAME = _cfg["BUCKET_NAME"]
         SQL_TABLE_NAME = _cfg['SQL_TABLE_NAME']
         SEMILLAS = _cfg["SEMILLAS"]

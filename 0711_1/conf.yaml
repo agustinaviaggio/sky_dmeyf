@@ -10,6 +10,7 @@ configuracion:
     DATA_PATH: "~/buckets/b1/datasets/competencia_01_crudo.csv"
     #DATA_PATH: "data/datasets_competencia_02_crudo.csv.gz"
     #DATA_PATH: "~/buckets/b1/datasets/competencia_02_crudo.csv.gz"
-    OUTPUT_PATH: "~/buckets/b1/datasets/competencia_02_FE.parquet"
+    #OUTPUT_PATH: "~/buckets/b1/datasets/competencia_02_FE.parquet"
+    OUTPUT_PATH: "~/buckets/b1/datasets/competencia_01_FE_v1.parquet"
     SQL_TABLE_NAME: "tabla_features"
     SEMILLAS: [600011, 600043, 600053, 600071, 600073]
