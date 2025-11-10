@@ -100,5 +100,11 @@ def ganancia_evaluator(y_pred, y_true) -> float:
     logger.info(f"GANANCIA_ACIERTO: {GANANCIA_ACIERTO}")
     logger.info(f"COSTO_ESTIMULO: {COSTO_ESTIMULO}")
 
-  
+    # Justo antes del return, agregá:
+    logger.info(f"Tipo de dato ganancia_acumulada: {df_ordenado['ganancia_acumulada'].dtype}")
+    logger.info(f"Primeros 5 valores: {df_ordenado['ganancia_acumulada'].head(5).to_list()}")
+    logger.info(f"Últimos 5 valores: {df_ordenado['ganancia_acumulada'].tail(5).to_list()}")
+    logger.info(f"Max calculado: {df_ordenado['ganancia_acumulada'].max()}")
+
+    logger.info(f"Tipo de dato y_true: {type(y_true)}, dtype: {y_true.dtype if hasattr(y_true, 'dtype') else 'N/A'}")
     return 'ganancia', ganancia_maxima, True
