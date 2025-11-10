@@ -86,10 +86,6 @@ def ganancia_evaluator(y_pred, y_true) -> float:
   
     # Calcular ganancia individual para cada cliente
     df_ordenado = df_ordenado.with_columns([pl.when(pl.col('y_true') == 1).then(GANANCIA_ACIERTO).otherwise(-COSTO_ESTIMULO).cast(pl.Int64).alias('ganancia_individual')])
-  
-    logger.info(df_ordenado.dtypes)
-    logger.info(f"GANANCIA_ACIERTO tipo: {type(GANANCIA_ACIERTO)} valor: {GANANCIA_ACIERTO}")
-    logger.info(f"COSTO_ESTIMULO tipo: {type(COSTO_ESTIMULO)} valor: {COSTO_ESTIMULO}")
 
     # Calcular ganancia acumulada
     df_ordenado = df_ordenado.with_columns([pl.col('ganancia_individual').cum_sum().alias('ganancia_acumulada')])
@@ -102,18 +98,4 @@ def ganancia_evaluator(y_pred, y_true) -> float:
     # Encontrar la ganancia máxima
     ganancia_maxima = df_ordenado.select(pl.col('ganancia_acumulada').max()).item()
 
-    # LOGS DE DIAGNÓSTICO
-    logger.info(f"Total registros: {len(df_ordenado)}")
-    logger.info(f"Target=1 (bajas+2): {(y_true == 1).sum()}")
-    logger.info(f"Target=0 (continúa): {(y_true == 0).sum()}")
-    logger.info(f"GANANCIA_ACIERTO: {GANANCIA_ACIERTO}")
-    logger.info(f"COSTO_ESTIMULO: {COSTO_ESTIMULO}")
-
-    # Justo antes del return, agregá:
-    logger.info(f"Tipo de dato ganancia_acumulada: {df_ordenado['ganancia_acumulada'].dtype}")
-    logger.info(f"Primeros 5 valores: {df_ordenado['ganancia_acumulada'].head(5).to_list()}")
-    logger.info(f"Últimos 5 valores: {df_ordenado['ganancia_acumulada'].tail(5).to_list()}")
-    logger.info(f"Max calculado: {df_ordenado['ganancia_acumulada'].max()}")
-
-    logger.info(f"Tipo de dato y_true: {type(y_true)}, dtype: {y_true.dtype if hasattr(y_true, 'dtype') else 'N/A'}")
     return 'ganancia', ganancia_maxima, True

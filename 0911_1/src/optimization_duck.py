@@ -197,11 +197,7 @@ def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optun
     # Ruta completa de la base de datos
     db_file = os.path.join(path_db, f"{study_name}.db")
     storage = f"sqlite:///{db_file}"
-
-    logger.info(f"🔍 Ruta completa del archivo .db: {db_file}")
-    logger.info(f"🔍 Storage string: {storage}")
-    logger.info(f"🔍 ¿Existe el archivo .db? {os.path.exists(db_file)}")
-  
+ 
     # Verificar si existe un estudio previo
     if os.path.exists(db_file):
         logger.info(f"Base de datos encontrada: {db_file}")
@@ -399,11 +395,10 @@ def guardar_resultados_test(resultados_test, archivo_base=None):
     
     bucket_path = os.path.expanduser(BUCKET_NAME)
 
-    path_db = os.path.join(bucket_path, "optuna_db")
-    os.makedirs(path_db, exist_ok=True)
+    path_resultados = os.path.join(bucket_path, "resultados_test")
+    os.makedirs(path_resultados, exist_ok=True)
 
-    resultados = os.path.join(bucket_path, f"resultados_test/{archivo_base}_test_results.json")
-    os.makedirs(resultados, exist_ok=True)
+    archivo_json = os.path.join(path_resultados, f"{archivo_base}_test_results.json")
     
     # Agregar timestamp
     resultados_test['datetime'] = datetime.now().isoformat()
@@ -414,10 +409,10 @@ def guardar_resultados_test(resultados_test, archivo_base=None):
         'mes_test': MES_TEST
     }
     
-    with open(resultados, 'w') as f:
+    with open(archivo_json, 'w') as f:
         json.dump(resultados_test, f, indent=2)
     
-    logger.info(f"Resultados de test guardados en {resultados}")
+    logger.info(f"Resultados de test guardados en {archivo_json}")
 
 
 # Uso
