@@ -73,7 +73,7 @@ def main():
         resultados_test = evaluar_en_test(conn, SQL_TABLE_NAME, study, MES_TEST_1)
 
         # Guardar resultados de test
-        guardar_resultados_test(resultados_test)
+        guardar_resultados_test(resultados_test, MES_TEST_1)
   
         # Resumen de evaluación en test
         logger.info("=== RESUMEN DE EVALUACIÓN EN TEST ===")
@@ -85,7 +85,7 @@ def main():
         resultados_test = evaluar_en_test(conn, SQL_TABLE_NAME, study, MES_TEST_2)
 
         # Guardar resultados de test
-        guardar_resultados_test(resultados_test)
+        guardar_resultados_test(resultados_test, MES_TEST_2)
   
         # Resumen de evaluación en test
         logger.info("=== RESUMEN DE EVALUACIÓN EN TEST ===")

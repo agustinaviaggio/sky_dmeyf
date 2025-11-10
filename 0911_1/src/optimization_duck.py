@@ -386,7 +386,7 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
     return resultados
 
 
-def guardar_resultados_test(resultados_test, archivo_base=None):
+def guardar_resultados_test(resultados_test, mes_test, archivo_base=None):
     """
     Guarda resultados de test en JSON.
     """
@@ -404,9 +404,8 @@ def guardar_resultados_test(resultados_test, archivo_base=None):
     resultados_test['datetime'] = datetime.now().isoformat()
     resultados_test['configuracion'] = {
         'semilla': SEMILLAS[0],
-        'meses_train': MESES_TRAIN,
-        'mes_validacion': MES_VALIDACION,
-        'mes_test': MES_TEST
+        'meses_train': MESES_TRAIN + MES_VALIDACION,
+        'mes_test': mes_test
     }
     
     with open(archivo_json, 'w') as f:
