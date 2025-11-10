@@ -38,6 +38,7 @@ def main():
 
         conn = create_status_binary_attributes(conn, SQL_TABLE_NAME)
         cols_to_drop = ["master_status", "visa_status"]
+        conn = drop_columns(conn, SQL_TABLE_NAME, cols_to_drop)
     
         # 2. Columnas con baja cardinalidad
         low_cardinality_cols = get_low_cardinality_columns(conn, SQL_TABLE_NAME, max_unique=10)
