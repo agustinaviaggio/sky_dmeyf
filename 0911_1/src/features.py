@@ -137,24 +137,23 @@ def get_low_cardinality_columns(conn: duckdb.DuckDBPyConnection, table_name: str
         FROM pragma_table_info('{table_name}')
     """).fetchall()
     
-    # Construir query dinámica para contar valores únicos
-    count_queries = []
-    for col in columnas:
-        col_name = col[0]
-        count_queries.append(f"(SELECT '{col_name}' AS variable, COUNT(DISTINCT {col_name}) AS valores_unicos FROM {table_name})")
+    # Construir query que lee la tabla UNA SOLA VEZ
+    count_exprs = [f"COUNT(DISTINCT {col[0]}) AS cnt_{i}" 
+                   for i, col in enumerate(columnas)]
     
-    full_query = " UNION ALL ".join(count_queries)
+    query = f"""
+        SELECT {', '.join(count_exprs)}
+        FROM {table_name}
+    """
     
-    # Ejecutar y filtrar
-    result = conn.execute(f"""
-        WITH cardinalidad AS ({full_query})
-        SELECT variable 
-        FROM cardinalidad 
-        WHERE valores_unicos < {max_unique}
-        ORDER BY variable
-    """).fetchall()
+    result = conn.execute(query).fetchone()
     
-    low_cardinality_cols = [row[0] for row in result]
+    # Filtrar columnas con baja cardinalidad
+    low_cardinality_cols = [
+        columnas[i][0] 
+        for i, count in enumerate(result) 
+        if count < max_unique
+    ]
     
     logger.info(f"Encontradas {len(low_cardinality_cols)} columnas con menos de {max_unique} valores únicos")
     
