@@ -188,18 +188,20 @@ def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optun
     if semilla is None:
         semilla = SEMILLAS[0] if isinstance(SEMILLAS, list) else SEMILLAS
     
+    bucket_path = os.path.expanduser(BUCKET_NAME)
+
     logger.info(f"🔍 BUCKET_NAME desde config: {BUCKET_NAME}")
-    logger.info(f"🔍 ¿Existe bucket_path? {os.path.exists(BUCKET_NAME)}")
+    logger.info(f"🔍 bucket_path expandido: {bucket_path}")
+    logger.info(f"🔍 ¿Existe bucket_path? {os.path.exists(bucket_path)}")
   
     # Crear carpeta para bases de datos si no existe
-    path_db = os.path.join(BUCKET_NAME, "optuna_db")
+    path_db = os.path.join(bucket_path, "optuna_db")  # ← Usar bucket_path, no BUCKET_NAME
 
     logger.info(f"🔍 path_db completo: {path_db}")
     logger.info(f"🔍 ¿Existe path_db ANTES de makedirs? {os.path.exists(path_db)}")
 
     os.makedirs(path_db, exist_ok=True)
     logger.info(f"🔍 ¿Existe path_db DESPUÉS de makedirs? {os.path.exists(path_db)}")
-
 
     # Ruta completa de la base de datos
     db_file = os.path.join(path_db, f"{study_name}.db")
