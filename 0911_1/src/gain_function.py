@@ -92,8 +92,6 @@ def ganancia_evaluator(y_pred, y_true) -> float:
     idx_max = df_ordenado['ganancia_acumulada'].arg_max()  
     n_contactados = int(idx_max) + 1
     logger.info(f"n_contactados (argmax+1): {n_contactados}")
-    logger.info(df_ordenado['ganancia_acumulada'].dtype)
-    logger.info(df_ordenado['ganancia_acumulada'].head(10))
 
     # Encontrar la ganancia máxima
     ganancia_maxima = df_ordenado.select(pl.col('ganancia_acumulada').max()).item()

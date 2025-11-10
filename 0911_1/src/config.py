@@ -19,7 +19,8 @@ try:
         SEMILLAS = _cfg["SEMILLAS"]
         MESES_TRAIN = _cfg["MESES_TRAIN"]
         MES_VALIDACION = _cfg["MES_VALIDACION"]
-        MES_TEST = _cfg["MES_TEST"]
+        MES_TEST_1 = _cfg["MES_TEST_1"]
+        MES_TEST_2 = _cfg["MES_TEST_2"]
         GANANCIA_ACIERTO = _cfg["GANANCIA_ACIERTO"]
         COSTO_ESTIMULO = _cfg["COSTO_ESTIMULO"]
 

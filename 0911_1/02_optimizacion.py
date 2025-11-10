@@ -43,9 +43,6 @@ def main():
     try:  
         # 1. Cargar datos y crear tabla sql
         conn = create_sql_table(DATA_PATH, SQL_TABLE_NAME)
-        #conn = target_binario(conn, SQL_TABLE_NAME)
-        #conn = target_ternario(conn, SQL_TABLE_NAME)
-        #conn = generar_targets(conn, SQL_TABLE_NAME)
   
         # 2. Ejecutar optimización
         study = optimizar(conn, SQL_TABLE_NAME, n_trials=2)
@@ -70,10 +67,10 @@ def main():
 
         logger.info("=== OPTIMIZACIÓN COMPLETADA ===")
 
-        logger.info("=== EVALUACIÓN EN CONJUNTO DE TEST ===")
+        logger.info("=== EVALUACIÓN EN CONJUNTO DE TEST 1===")
         
         # Evaluar en test
-        resultados_test = evaluar_en_test(conn, SQL_TABLE_NAME, study)
+        resultados_test = evaluar_en_test(conn, SQL_TABLE_NAME, study, MES_TEST_1)
 
         # Guardar resultados de test
         guardar_resultados_test(resultados_test)
@@ -82,6 +79,18 @@ def main():
         logger.info("=== RESUMEN DE EVALUACIÓN EN TEST ===")
         logger.info(f"Ganancia en test: {resultados_test['ganancia_test']:,.0f}")
     
+        logger.info("=== EVALUACIÓN EN CONJUNTO DE TEST 2===")
+        
+        # Evaluar en test
+        resultados_test = evaluar_en_test(conn, SQL_TABLE_NAME, study, MES_TEST_2)
+
+        # Guardar resultados de test
+        guardar_resultados_test(resultados_test)
+  
+        # Resumen de evaluación en test
+        logger.info("=== RESUMEN DE EVALUACIÓN EN TEST ===")
+        logger.info(f"Ganancia en test: {resultados_test['ganancia_test']:,.0f}")
+
     except Exception as e:
         logger.error(f"Error durante la ejecución del pipeline: {e}")
         raise

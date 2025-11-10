@@ -282,7 +282,7 @@ def optimizar(conn, tabla: str, study_name: str = None, n_trials=100) -> optuna.
     
     return study
 
-def evaluar_en_test(conn, tabla: str, study: optuna.Study) -> dict:
+def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dict:
     """
     Evalúa el modelo con los mejores hiperparámetros en test.
     Args:
@@ -294,7 +294,7 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study) -> dict:
         dict: Resultados de evaluación en test
     """
     logger.info("=== EVALUACIÓN EN CONJUNTO DE TEST ===")
-    logger.info(f"Período de test: {MES_TEST}")
+    logger.info(f"Período de test: {mes_test}")
 
     mejores_params = study.best_params
     best_iteration = study.best_trial.user_attrs['best_iteration']
@@ -306,7 +306,7 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study) -> dict:
         periodos_train_str = f"{MESES_TRAIN},{MES_VALIDACION}"
     
     query_train_completo = f"SELECT * FROM {tabla} WHERE foto_mes IN ({periodos_train_str})"
-    query_test = f"SELECT * FROM {tabla} WHERE foto_mes = {MES_TEST}"
+    query_test = f"SELECT * FROM {tabla} WHERE foto_mes = {mes_test}"
     
     # Obtener datos con fetchnumpy
     train_data = conn.execute(query_train_completo).fetchnumpy()
