@@ -85,7 +85,7 @@ def ganancia_evaluator(y_pred, y_true) -> float:
     df_ordenado = df_eval.sort('y_pred_proba', descending=True)
   
     # Calcular ganancia individual para cada cliente
-    df_ordenado = df_ordenado.with_columns([pl.when(pl.col('y_true') == 1).then(GANANCIA_ACIERTO).otherwise(-COSTO_ESTIMULO).alias('ganancia_individual')])
+    df_ordenado = df_ordenado.with_columns([pl.when(pl.col('y_true') == 1).then(GANANCIA_ACIERTO).otherwise(-COSTO_ESTIMULO).cast(pl.Int64).alias('ganancia_individual')])
   
     logger.info(df_ordenado.dtypes)
     logger.info(f"GANANCIA_ACIERTO tipo: {type(GANANCIA_ACIERTO)} valor: {GANANCIA_ACIERTO}")
