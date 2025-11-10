@@ -60,7 +60,7 @@ def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
             conn.execute(f"""
                 CREATE OR REPLACE TABLE {table_name} AS
                 SELECT *
-                FROM read_csv_auto('{path}', auto_type_candidates=['VARCHAR', 'FLOAT', 'INTEGER'])
+                FROM read_csv_auto('{path}', all_varchar=FALSE)
             """)
         else:
             raise ValueError(f"Formato de archivo no soportado: {path}")
