@@ -93,7 +93,9 @@ def ganancia_evaluator(y_pred, y_true) -> float:
 
     # Calcular ganancia acumulada
     df_ordenado = df_ordenado.with_columns([pl.col('ganancia_individual').cum_sum().alias('ganancia_acumulada')])
-  
+    idx_max = df_ordenado['ganancia_acumulada'].arg_max()  
+    n_contactados = int(idx_max) + 1
+    logger.info(f"n_contactados (argmax+1): {n_contactados}")
     logger.info(df_ordenado['ganancia_acumulada'].dtype)
     logger.info(df_ordenado['ganancia_acumulada'].head(10))
 
