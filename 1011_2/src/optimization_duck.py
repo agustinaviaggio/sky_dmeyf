@@ -358,7 +358,7 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
         )
 
         models[i] = lgb.train(
-            mejores_params,
+            params,
             train_set,
             num_boost_round=best_iteration,
             callbacks=[lgb.log_evaluation(period=100)]
