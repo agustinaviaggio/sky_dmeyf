@@ -60,6 +60,38 @@ def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
         conn.close()
         raise
 
+def create_sql_table_from_parquet(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
+    '''
+    Carga un CSV o Parquet desde 'path' en una tabla DuckDB en memoria y retorna 
+    el objeto de conexión para interactuar con esa tabla.
+    '''
+    logger.info(f"Cargando dataset desde {path}")
+    conn = duckdb.connect(database=':memory:')
+    
+    try:
+        # Detectar el tipo de archivo por extensión
+        if path.lower().endswith('.parquet'):
+            conn.execute(f"""
+                CREATE OR REPLACE TABLE {table_name} AS
+                SELECT *
+                FROM read_parquet('{path}')
+            """)
+        elif path.lower().endswith('.csv'):
+            conn.execute(f"""
+                CREATE OR REPLACE TABLE {table_name} AS
+                SELECT *
+                FROM read_csv_auto('{path}', all_varchar=FALSE)
+            """)
+        else:
+            raise ValueError(f"Formato de archivo no soportado: {path}")
+        
+        return conn
+    
+    except Exception as e:
+        logger.error(f"Error al cargar el dataset: {e}")
+        conn.close()
+        raise
+
 def classify_data_types(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
     """
     Crea una tabla con el esquema clasificado en:

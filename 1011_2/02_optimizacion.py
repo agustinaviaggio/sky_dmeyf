@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 import os
 
-from src.features import create_sql_table, target_binario, target_ternario, generar_targets
+from src.features import create_sql_table_from_parquet, target_binario, target_ternario, generar_targets
 from src.optimization_duck import optimizar, evaluar_en_test, guardar_resultados_test
 from src.config import *
 from src.best_params import cargar_mejores_hiperparametros
@@ -42,7 +42,7 @@ def main():
     conn = None # Inicializamos la conexión a None
     try:  
         # 1. Cargar datos y crear tabla sql
-        conn = create_sql_table(DATA_PATH_OPT, SQL_TABLE_NAME)
+        conn = create_sql_table_from_parquet(DATA_PATH_OPT, SQL_TABLE_NAME)
   
         # 2. Ejecutar optimización
         study = optimizar(conn, SQL_TABLE_NAME, n_trials=10)
