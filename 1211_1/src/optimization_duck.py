@@ -453,8 +453,8 @@ def guardar_resultados_test(resultados_test, mes_test, archivo_base=None):
     # Agregar timestamp
     resultados_test['datetime'] = datetime.now().isoformat()
     resultados_test['configuracion'] = {
-        'semilla': SEMILLAS,
-        'meses_train': MESES_TRAIN + [MES_VALIDACION],
+        'semilla': SEMILLAS[0],
+        'meses_train': MESES_TRAIN + MES_VALIDACION,
         'mes_test': mes_test
     }
     
