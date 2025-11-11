@@ -52,9 +52,14 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
     }
     
     # Queries para train y validación
-    query_train = f"SELECT * FROM {tabla} WHERE foto_mes = {MESES_TRAIN}"
-    query_val = f"SELECT * FROM {tabla} WHERE foto_mes = {MES_VALIDACION}"
+    if isinstance(MESES_TRAIN, list):
+        periodos_train_str = ','.join(map(str, MESES_TRAIN))
+    else:
+        periodos_train_str = f"{MESES_TRAIN}"
     
+    query_train = f"SELECT * FROM {tabla} WHERE foto_mes IN ({periodos_train_str})"
+    query_val = f"SELECT * FROM {tabla} WHERE foto_mes = {MES_VALIDACION}"
+
     # Obtener datos como dict de numpy arrays
     train_data = conn.execute(query_train).fetchnumpy()
     val_data = conn.execute(query_val).fetchnumpy()
