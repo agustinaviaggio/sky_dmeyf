@@ -3,7 +3,7 @@
 # ==========================================================
 
 # Parámetros Globales (Directamente mapeados a variables en config.py)
-STUDY_NAME: "1011_3"
+STUDY_NAME: "1111_1"
 
 configuracion:
     # Ruta al archivo de datos de entrada
@@ -24,7 +24,7 @@ configuracion:
         600347, 600377, 600389, 600391, 600401,
         600413, 600427, 600437, 600443, 600463
         ]
-    MESES_TRAIN: "202102"
+    MESES_TRAIN: ["202011", "202012", "202101", "202102"] 
     MES_VALIDACION: "202103"
     MES_TEST_1: "202104"
     MES_TEST_2: "202106"
