@@ -49,7 +49,10 @@ def main():
     
         # 5. Análisis adicional
         logger.info("=== ANÁLISIS DE RESULTADOS ===")
-        trials_ordenados = sorted(study.trials, key=lambda t: t.value, reverse=True)[:5]
+        # Filtrar solo trials que completaron exitosamente
+        trials_completos = [t for t in study.trials if t.value is not None]
+        trials_ordenados = sorted(trials_completos, key=lambda t: t.value, reverse=True)[:5]
+
         logger.info("Top 5 mejores trials:")
         for trial in trials_ordenados:
             logger.info(f"  Trial {trial.number}: {trial.value:,.0f}")
