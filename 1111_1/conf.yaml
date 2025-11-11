@@ -30,5 +30,5 @@ configuracion:
     MES_TEST_2: "202106"
     GANANCIA_ACIERTO: 780000
     COSTO_ESTIMULO: 20000
-    FINAL_TRAIN: ["202101", "202102", "202103", "202104"] 
-    FINAL_PREDIC: "202106"                                
+    #FINAL_TRAIN: ["202101", "202102", "202103", "202104"] 
+    #FINAL_PREDIC: "202106"                                
