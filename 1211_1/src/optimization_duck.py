@@ -330,9 +330,10 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
     logger.info(f"Train completo: {len(y_train_completo)} registros")
     logger.info(f"Test: {len(y_test)} registros")
 
-    models = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-    y_pred_futuro = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-    
+    #models = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    #y_pred_futuro = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    models = [0,0,0,0,0]
+    y_pred_futuro = [0,0,0,0,0]
     # Entrenar con mejores parámetros
     for i in range(len(SEMILLAS)):       
         params = {
