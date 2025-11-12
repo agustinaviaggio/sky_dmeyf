@@ -496,37 +496,6 @@ def main():
         conn = create_time_since_features(conn, SQL_TABLE_NAME, conditions_time_since, output_names_time_since)
 
         # ============================================================
-        # SUDDEN CHANGES (sin cambios)
-        # ============================================================
-        
-        logger.info("=== CREANDO SUDDEN CHANGES ===")
-        
-        vars_sudden_change = [
-            'mcuentas_saldo', 'mconsumototal_tc', 'mrentabilidad',
-            'comisiones_monto_total', 'payroll_monto_total', 'endeudamiento_total',
-            'transacciones_digitales_total'
-        ]
-
-        conn = create_sudden_change_features(conn, SQL_TABLE_NAME, vars_sudden_change, threshold=2.0, window=6)
-
-        # ============================================================
-        # VS MAX (sin cambios)
-        # ============================================================
-        
-        logger.info("=== CREANDO VS MAX ===")
-        
-        vars_vs_max = [
-            'mcuentas_saldo', 'mconsumototal_tc', 'cproductos',
-            'mrentabilidad', 'transacciones_digitales_total'
-        ]
-
-        # Vs máximo histórico completo
-        conn = create_vs_max_features(conn, SQL_TABLE_NAME, vars_vs_max, window=None)
-
-        # Vs máximo últimos 6 meses
-        conn = create_vs_max_features(conn, SQL_TABLE_NAME, vars_vs_max, window=6)
-
-        # ============================================================
         # TARGETS Y GUARDADO (sin cambios)
         # ============================================================
         
