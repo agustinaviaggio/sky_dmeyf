@@ -1,4 +1,5 @@
 import optuna
+import gc
 import lightgbm as lgb
 import duckdb
 import numpy as np
@@ -127,6 +128,8 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
     logger.info(f"Trial {trial.number} - Rango predicciones: [{y_pred.min():.4f}, {y_pred.max():.4f}]")
     logger.info(f"Trial {trial.number} - Target ternario = 1: {(y_val == 1).sum()} de {len(y_val)}")
 
+    del X_train, y_train, X_val, y_val, train_data, val_data, model, train_set, val_set, y_pred
+    gc.collect()
     return ganancia_val
 
 def guardar_iteracion(trial, ganancia, archivo_base=None):
