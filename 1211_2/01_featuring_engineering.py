@@ -148,8 +148,8 @@ def main():
         conn = create_sum_features(
             conn, SQL_TABLE_NAME,
             columns_to_sum=[
-                ('ccuenta_debitos_automaticos', 'ctarjeta_visa_debitos_automaticos', 'ctarjeta_master_debitos_automaticos'),
-                ('mcuenta_debitos_automaticos', 'mtarjeta_visa_debitos_automaticos', 'mttarjeta_master_debitos_automaticos')
+                ('ccuenta_debitos_automaticos', 'ctarjeta_debitos_automaticos_tc'),
+                ('mcuenta_debitos_automaticos', 'mtarjeta_debitos_automaticos_tc')
             ],
             output_names=['debitos_auto_count_total', 'debitos_auto_monto_total']
         )
