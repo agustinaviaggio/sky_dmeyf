@@ -69,6 +69,7 @@ def main():
                 pragma_table_info('{SQL_TABLE_NAME}')
             WHERE 
                 name ILIKE '%visa%'
+            AND name NOT ILIKE '%status%'
         """
         
         cols_visa = conn.execute(sql_get_cols_visa).fetchall()
@@ -80,6 +81,7 @@ def main():
                 pragma_table_info('{SQL_TABLE_NAME}')
             WHERE 
                 name ILIKE '%master%'
+            AND name NOT ILIKE '%status%'
         """
 
         cols_master = conn.execute(sql_get_cols_master).fetchall()
