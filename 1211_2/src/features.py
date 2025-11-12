@@ -1178,34 +1178,12 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 def create_sum_features(conn: duckdb.DuckDBPyConnection, table_name: str, columns_to_sum: list[tuple], output_names: list[str]) -> duckdb.DuckDBPyConnection:
-    """
-    Suma múltiples columnas entre sí.
-    
-    Parameters:
-    -----------
-    conn : duckdb.DuckDBPyConnection
-        Conexión a DuckDB
-    table_name : str
-        Nombre de la tabla
-    columns_to_sum : list[tuple]
-        Lista de tuplas, cada tupla contiene las columnas a sumar
-        Ejemplo: [('col1', 'col2', 'col3'), ('col4', 'col5')]
-    output_names : list[str]
-        Nombres de las columnas resultantes
-        Ejemplo: ['suma_123', 'suma_45']
-    
-    Returns:
-    --------
-    duckdb.DuckDBPyConnection
-    """
-    
     logger.info(f"Creando {len(output_names)} features de suma")
     
-    # Construir las expresiones SQL
     new_cols_sql = []
     for cols, output_name in zip(columns_to_sum, output_names):
-        # Crear expresión COALESCE para cada columna
-        coalesce_exprs = [f"COALESCE({col}, 0)" for col in cols]
+        # Crear expresión COALESCE con CAST para manejar VARCHAR
+        coalesce_exprs = [f"COALESCE(CAST({col} AS INTEGER), 0)" for col in cols]
         sum_expr = " + ".join(coalesce_exprs)
         new_cols_sql.append(f"{sum_expr} AS {output_name}")
     
