@@ -400,7 +400,7 @@ def main():
         vars_criticas_trend = [
             'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc', 'cproductos',
             'transacciones_digitales_total', 'payroll_monto_total', 'inversiones_monto_total',
-            'debitos_auto_count_total', 'endeudamiento_total', 'margen_total',
+            'endeudamiento_total', 'margen_total',
             'cuentas_total', 'seguros_total', 'diversificacion_productos',
             'actividad_transaccional', 'actividad_inversora', 'comisiones_monto_total'
         ]
@@ -442,7 +442,6 @@ def main():
             'flag_perdiendo_productos = 1',             # ← Ahora usa flag
             'flag_sin_payroll = 1',                     # ← Ahora usa flag
             'flag_tc_en_cierre = 1',                    # ← Ahora usa flag
-            'flag_cancelando_debitos_auto = 1',         # ← Ahora usa flag
             'flag_endeudamiento_creciente = 1',         # ← Ahora usa flag
             'flag_desinvirtiendo = 1'                   # ← Ahora usa flag
         ]
@@ -456,7 +455,6 @@ def main():
             'streak_perdiendo_productos_3m',
             'streak_sin_payroll_3m',
             'streak_tc_en_cierre_3m',
-            'streak_cancelando_debitos_auto_3m',
             'streak_endeudamiento_creciente_3m',
             'streak_desinvirtiendo_3m'
         ]
