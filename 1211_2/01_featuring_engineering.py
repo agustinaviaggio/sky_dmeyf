@@ -474,7 +474,6 @@ def main():
             'flag_plazo_fijo = 1',                      # ← Ahora usa flag
             'flag_inversion = 1',                       # ← Ahora usa flag
             'flag_perdiendo_productos = 1',             # ← Ahora usa flag (cancelación producto)
-            'flag_cancelando_debitos_auto = 1',         # ← Ahora usa flag (cancelación débito auto)
             'flag_pico_saldo = 1',                      # ← Ahora usa flag
             'flag_pico_productos = 1',                  # ← Ahora usa flag
             'flag_pico_rentabilidad = 1',               # ← Ahora usa flag
@@ -488,7 +487,6 @@ def main():
             'meses_desde_ultimo_plazo_fijo',
             'meses_desde_ultima_inversion',
             'meses_desde_cancelacion_producto',
-            'meses_desde_cancelacion_debito_auto',
             'meses_desde_pico_saldo',
             'meses_desde_pico_productos',
             'meses_desde_pico_rentabilidad',
