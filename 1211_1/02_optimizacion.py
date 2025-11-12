@@ -45,7 +45,7 @@ def main():
         conn = create_sql_table_from_parquet(DATA_PATH_OPT, SQL_TABLE_NAME)
   
         # 2. Ejecutar optimización
-        study = optimizar(conn, SQL_TABLE_NAME, n_trials=10)
+        study = optimizar(conn, SQL_TABLE_NAME, n_trials=50)
     
         # 5. Análisis adicional
         logger.info("=== ANÁLISIS DE RESULTADOS ===")
