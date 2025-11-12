@@ -1871,11 +1871,7 @@ def create_behavioral_flags(conn: duckdb.DuckDBPyConnection, table_name: str) ->
             
             -- Flag: TC en cierre (ya existe, pero lo referencio para claridad)
             tc_en_cierre AS flag_tc_en_cierre,
-            
-            -- Flag: cancelando débitos automáticos
-            CASE WHEN debitos_auto_count_total < LAG(debitos_auto_count_total, 1) OVER w 
-                 THEN 1 ELSE 0 END AS flag_cancelando_debitos_auto,
-            
+                   
             -- Flag: endeudamiento creciente
             CASE WHEN endeudamiento_total > LAG(endeudamiento_total, 1) OVER w 
                  THEN 1 ELSE 0 END AS flag_endeudamiento_creciente,
