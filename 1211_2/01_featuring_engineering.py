@@ -154,16 +154,6 @@ def main():
             output_names=['pagos_servicios_count_total', 'pagos_servicios_monto_total']
         )
 
-        # 13.8 Descuentos total
-        conn = create_sum_features(
-            conn, SQL_TABLE_NAME,
-            columns_to_sum=[
-                ('ccajeros_propios_descuentos', 'ctarjeta_visa_descuentos', 'ctarjeta_master_descuentos'),
-                ('mcajeros_propios_descuentos', 'mtarjeta_visa_descuentos', 'mtarjeta_master_descuentos')
-            ],
-            output_names=['descuentos_count_total', 'descuentos_monto_total']
-        )
-
         # 13.9 Comisiones total
         conn = create_sum_features(
             conn, SQL_TABLE_NAME,
