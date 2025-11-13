@@ -19,9 +19,15 @@ try:
         BUCKET_NAME = _cfg["BUCKET_NAME"]
         SQL_TABLE_NAME = _cfg['SQL_TABLE_NAME']
         SEMILLAS = _cfg["SEMILLAS"]
-        MESES_TRAIN_BAJA = _cfg["MESES_TRAIN_BAJA"]
-        MESES_TRAIN_CONTINUA = _cfg["MESES_TRAIN_CONTINUA"]
-        MES_VALIDACION = _cfg["MES_VALIDACION"]
+        
+        # Períodos para Time Series CV
+        PERIODOS_TRAIN = _cfg.get("PERIODOS_TRAIN", ["202101", "202102", "202103", "202104"])
+        
+        # Legacy (mantener por compatibilidad con código viejo)
+        MESES_TRAIN_BAJA = _cfg.get("MESES_TRAIN_BAJA", ["202101","202102","202103"])
+        MESES_TRAIN_CONTINUA = _cfg.get("MESES_TRAIN_CONTINUA", ["202103"])
+        MES_VALIDACION = _cfg.get("MES_VALIDACION", ["202104"])
+        
         MES_TEST_1 = _cfg["MES_TEST_1"]
         MES_TEST_2 = _cfg["MES_TEST_2"]
         GANANCIA_ACIERTO = _cfg["GANANCIA_ACIERTO"]
@@ -36,7 +42,6 @@ try:
         VALIDATION_SIZE = _cfg.get("VALIDATION_SIZE", 1)
         GAP = _cfg.get("GAP", 0)
         UNDERSAMPLING_RATIO = _cfg.get("UNDERSAMPLING_RATIO", 0.01)
-        
 
 except Exception as e:
     logger.error(f"Error al cargar el archivo de configuracion: {e}")

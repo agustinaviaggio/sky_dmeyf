@@ -55,29 +55,24 @@ def objetivo_ganancia(trial, conn, tabla: str, cv_splits: list) -> float:
     for fold_idx, (train_periods, val_periods) in enumerate(cv_splits):
         logger.info(f"Trial {trial.number} - Fold {fold_idx+1}/{len(cv_splits)}")
         
-        # Separación baja/continua
-        periodos_baja_train = [p for p in train_periods if p in MESES_TRAIN_BAJA]
-        periodos_continua_train = [p for p in train_periods if p in MESES_TRAIN_CONTINUA]
+        # Query SIMPLE con undersampling (sin separación baja/continua)
+        periodos_train_str = ','.join(map(str, train_periods))
         
-        periodos_baja_str = ','.join(map(str, periodos_baja_train)) if periodos_baja_train else '-1'
-        periodos_continua_str = ','.join(map(str, periodos_continua_train)) if periodos_continua_train else '-1'
-        
-        # Query con UNDERSAMPLING al 1%
         query_train = f"""
-            WITH clase_0_continua_sample AS (
+            WITH clase_0_sample AS (
                 SELECT * FROM {tabla}
-                WHERE foto_mes IN ({periodos_continua_str}) 
+                WHERE foto_mes IN ({periodos_train_str}) 
                   AND target_binario = 0
                 USING SAMPLE {UNDERSAMPLING_RATIO * 100} PERCENT (bernoulli, {SEMILLAS[0] + fold_idx})
             ),
-            clase_1_baja AS (
+            clase_1_completa AS (
                 SELECT * FROM {tabla}
-                WHERE foto_mes IN ({periodos_baja_str}) 
+                WHERE foto_mes IN ({periodos_train_str}) 
                   AND target_binario = 1
             )
-            SELECT * FROM clase_0_continua_sample
+            SELECT * FROM clase_0_sample
             UNION ALL
-            SELECT * FROM clase_1_baja
+            SELECT * FROM clase_1_completa
         """
         
         periodos_val_str = ','.join(map(str, val_periods))
@@ -173,10 +168,11 @@ def guardar_iteracion(trial, ganancia, archivo_base=None):
         'datetime': datetime.now().isoformat(),
         'state': 'COMPLETE',
         'configuracion': {
-            'semilla': SEMILLAS,
-            'mes_train_b': MESES_TRAIN_BAJA,
-            'mes_train_c': MESES_TRAIN_CONTINUA,
-            'mes_validacion': MES_VALIDACION
+            'semillas': SEMILLAS,
+            'periodos_train': PERIODOS_TRAIN,
+            'n_splits': N_SPLITS,
+            'cv_strategy': CV_STRATEGY,
+            'undersampling_ratio': UNDERSAMPLING_RATIO
         }
     }
     
@@ -271,7 +267,7 @@ def optimizar(conn, tabla: str, study_name: str = None, n_trials=100) -> optuna.
     study_name = STUDY_NAME
     
     # Generar períodos de optimización (todos menos test)
-    todos_periodos = sorted(set(MESES_TRAIN_BAJA + MESES_TRAIN_CONTINUA + MES_VALIDACION))
+    todos_periodos = PERIODOS_TRAIN
     
     # Generar splits de CV
     cv_splits = generar_time_series_splits(
@@ -328,26 +324,24 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
     mejores_params = study.best_params
     best_iteration = study.best_trial.user_attrs['best_iteration']
 
-    periodos_baja_str = ','.join(map(str, MESES_TRAIN_BAJA + MES_VALIDACION))
-    periodos_continua_str = ','.join(map(str, MESES_TRAIN_CONTINUA))
+    # Usar PERIODOS_TRAIN directamente
+    periodos_train_str = ','.join(map(str, PERIODOS_TRAIN))
     
-    # Query que obtiene registros de MESES_TRAIN_BAJA donde target_binario=0
-    # y registros de MESES_TRAIN_CONTINUA donde target_binario=1
     query_train_completo = f"""
-        WITH clase_0_continua_sample AS (
+        WITH clase_0_sample AS (
             SELECT * FROM {tabla}
-            WHERE foto_mes IN ({periodos_continua_str}) 
+            WHERE foto_mes IN ({periodos_train_str}) 
               AND target_binario = 0
             USING SAMPLE {UNDERSAMPLING_RATIO * 100} PERCENT (bernoulli, {SEMILLAS[0]})
         ),
-        clase_1_baja AS (
+        clase_1_completa AS (
             SELECT * FROM {tabla}
-            WHERE foto_mes IN ({periodos_baja_str}) 
+            WHERE foto_mes IN ({periodos_train_str}) 
               AND target_binario = 1
         )
-        SELECT * FROM clase_0_continua_sample
+        SELECT * FROM clase_0_sample
         UNION ALL
-        SELECT * FROM clase_1_baja
+        SELECT * FROM clase_1_completa
     """
     
     periodos_test_str = ','.join(map(str, mes_test))
@@ -500,9 +494,10 @@ def guardar_resultados_test(resultados_test, mes_test, archivo_base=None):
     # Agregar timestamp
     resultados_test['datetime'] = datetime.now().isoformat()
     resultados_test['configuracion'] = {
-        'semilla': SEMILLAS[0],
-        'meses_train_b': MESES_TRAIN_BAJA + MES_VALIDACION,
-        'mes_test': mes_test
+        'semillas': SEMILLAS,
+        'periodos_train': PERIODOS_TRAIN,
+        'mes_test': mes_test,
+        'undersampling_ratio': UNDERSAMPLING_RATIO
     }
     
     datos_existentes.append(resultados_test)
