@@ -22,23 +22,22 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-logger.info("Iniciando programa de optimización con log fechado")
+logger.info("Iniciando programa de entrenamiento final y predicción con log fechado")
 
 ### Manejo de Configuración en YAML ###
 logger.info("Configuración cargada desde YAML")
 logger.info(f"STUDY_NAME: {STUDY_NAME}")
 logger.info(f"DATA_PATH_OPT: {DATA_PATH_OPT}")
 logger.info(f"SEMILLAS: {SEMILLAS}")
-logger.info(f"MESES_TRAIN_BAJA: {MESES_TRAIN_BAJA}")
-logger.info(f"MESES_TRAIN_CONTINUA: {MESES_TRAIN_CONTINUA}")
+logger.info(f"MESES_TRAIN: {MESES_TRAIN}")
 logger.info(f"MES_VALIDACION: {MES_VALIDACION}")
 logger.info(f"GANANCIA_ACIERTO: {GANANCIA_ACIERTO}")
 logger.info(f"COSTO_ESTIMULO: {COSTO_ESTIMULO}")
 
 ### Main ###
 def main():
-    """Pipeline principal con optimización usando configuración YAML."""
-    logger.info("=== INICIANDO OPTIMIZACIÓN CON CONFIGURACIÓN YAML ===")
+    """Pipeline principal de entrenamiento final y predicción usando configuración YAML."""
+    logger.info("=== INICIANDO ENTRENAMIENTO FINAL CON CONFIGURACIÓN YAML ===")
 
     conn = None # Inicializamos la conexión a None
     try:  
@@ -46,30 +45,7 @@ def main():
         conn = create_sql_table_from_parquet(DATA_PATH_OPT, SQL_TABLE_NAME)
   
         # 2. Ejecutar optimización
-        study = optimizar(conn, SQL_TABLE_NAME, n_trials=7)
-    
-        # 5. Análisis adicional
-        logger.info("=== ANÁLISIS DE RESULTADOS ===")
-        # Filtrar solo trials que completaron exitosamente
-        trials_completos = [t for t in study.trials if t.value is not None]
-        trials_ordenados = sorted(trials_completos, key=lambda t: t.value, reverse=True)[:5]
-
-        logger.info("Top 5 mejores trials:")
-        for trial in trials_ordenados:
-            logger.info(f"  Trial {trial.number}: {trial.value:,.0f}")
-
-        # Análisis de feature importance del mejor trial
-        logger.info("=== FEATURE IMPORTANCE DEL MEJOR TRIAL ===")
-        best_trial = study.best_trial
-        top_features = best_trial.user_attrs.get('top_features', [])
-        top_importance = best_trial.user_attrs.get('top_importance', [])
-
-        logger.info("Top 10 features más importantes:")
-        for name, importance in zip(top_features, top_importance):
-            logger.info(f"  {name}: {importance:,.0f}")
-
-
-        logger.info("=== OPTIMIZACIÓN COMPLETADA ===")
+        study = optimizar(conn, SQL_TABLE_NAME, n_trials=10)
 
         logger.info("=== EVALUACIÓN EN CONJUNTO DE TEST 1===")
         
