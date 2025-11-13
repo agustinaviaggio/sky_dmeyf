@@ -60,6 +60,7 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
     # Preparar periodos de entrenamiento según target_binario
     periodos_baja_str = ','.join(map(str, MESES_TRAIN_BAJA))
     periodos_continua_str = ','.join(map(str, MESES_TRAIN_CONTINUA))
+
     
     # Query que obtiene registros de MESES_TRAIN_BAJA donde target_binario=0
     # y registros de MESES_TRAIN_CONTINUA donde target_binario=1
@@ -68,8 +69,10 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
         WHERE (foto_mes IN ({periodos_baja_str}) AND target_binario = 0)
            OR (foto_mes IN ({periodos_continua_str}) AND target_binario = 1)
     """
+
+    periodos_val_str = ','.join(map(str, MES_VALIDACION))
     
-    query_val = f"SELECT * FROM {tabla} WHERE foto_mes = {MES_VALIDACION}"
+    query_val = f"SELECT * FROM {tabla} WHERE foto_mes in ({periodos_val_str})"
 
     # Obtener datos como dict de numpy arrays
     train_data = conn.execute(query_train).fetchnumpy()
@@ -331,7 +334,9 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
            OR (foto_mes IN ({periodos_continua_str}) AND target_binario = 1)
     """
     
-    query_test = f"SELECT * FROM {tabla} WHERE foto_mes = {mes_test}"
+    periodos_test_str = ','.join(map(str, mes_test))
+    
+    query_test = f"SELECT * FROM {tabla} WHERE foto_mes in ({periodos_test_str})"
 
     # Obtener datos como dict de numpy arrays
     train_data = conn.execute(query_train_completo).fetchnumpy()
