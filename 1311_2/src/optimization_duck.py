@@ -66,8 +66,8 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
     # y registros de MESES_TRAIN_CONTINUA donde target_binario=1
     query_train = f"""
         SELECT * FROM {tabla} 
-        WHERE (foto_mes IN ({periodos_baja_str}) AND target_binario = 0)
-           OR (foto_mes IN ({periodos_continua_str}) AND target_binario = 1)
+        WHERE (foto_mes IN ({periodos_baja_str}) AND target_binario = 1)
+           OR (foto_mes IN ({periodos_continua_str}) AND target_binario = 0)
     """
 
     periodos_val_str = ','.join(map(str, MES_VALIDACION))
@@ -330,8 +330,8 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
     # y registros de MESES_TRAIN_CONTINUA donde target_binario=1
     query_train_completo = f"""
         SELECT * FROM {tabla} 
-        WHERE (foto_mes IN ({periodos_baja_str}) AND target_binario = 0)
-           OR (foto_mes IN ({periodos_continua_str}) AND target_binario = 1)
+        WHERE (foto_mes IN ({periodos_baja_str}) AND target_binario = 1)
+           OR (foto_mes IN ({periodos_continua_str}) AND target_binario = 0)
     """
     
     periodos_test_str = ','.join(map(str, mes_test))
