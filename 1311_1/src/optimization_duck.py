@@ -81,7 +81,7 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
     
     # Preparar features y target
     feature_cols = [col for col in train_data.keys() 
-                    if col not in ['target_binario', 'target_ternario']]
+                    if col not in ['target_binario', 'target_ternario', 'foto_mes']]
     
     X_train = np.column_stack([train_data[col] for col in feature_cols])
     y_train = train_data['target_binario']
@@ -165,7 +165,8 @@ def guardar_iteracion(trial, ganancia, archivo_base=None):
         'state': 'COMPLETE',
         'configuracion': {
             'semilla': SEMILLAS,
-            'mes_train': MESES_TRAIN,
+            'mes_train_b': MESES_TRAIN_BAJA,
+            'mes_train_c': MESES_TRAIN_CONTINUA,
             'mes_validacion': MES_VALIDACION
         }
     }
@@ -274,7 +275,7 @@ def optimizar(conn, tabla: str, study_name: str = None, n_trials=100) -> optuna.
     study_name = STUDY_NAME
 
     logger.info(f"Iniciando optimización con {n_trials} trials")
-    logger.info(f"Configuración: TRAIN={MESES_TRAIN}, VALID={MES_VALIDACION}, SEMILLA={SEMILLAS[0]}")
+    logger.info(f"Configuración: TRAIN_b={MESES_TRAIN_BAJA},TRAIN_c={MESES_TRAIN_CONTINUA}, VALID={MES_VALIDACION}, SEMILLA={SEMILLAS[0]}")
 
     # Crear o cargar estudio desde DuckDB
     study = crear_o_cargar_estudio(study_name, SEMILLAS[0])
@@ -318,23 +319,27 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
 
     mejores_params = study.best_params
     best_iteration = study.best_trial.user_attrs['best_iteration']
+
+    periodos_baja_str = ','.join(map(str, MESES_TRAIN_BAJA + MES_VALIDACION))
+    periodos_continua_str = ','.join(map(str, MESES_TRAIN_CONTINUA))
     
-    # Queries para train completo (train + validación) y test
-    if isinstance(MESES_TRAIN, list):
-        periodos_train_str = ','.join(map(str, MESES_TRAIN + [MES_VALIDACION]))
-    else:
-        periodos_train_str = f"{MESES_TRAIN},{MES_VALIDACION}"
+    # Query que obtiene registros de MESES_TRAIN_BAJA donde target_binario=0
+    # y registros de MESES_TRAIN_CONTINUA donde target_binario=1
+    query_train_completo = f"""
+        SELECT * FROM {tabla} 
+        WHERE (foto_mes IN ({periodos_baja_str}) AND target_binario = 0)
+           OR (foto_mes IN ({periodos_continua_str}) AND target_binario = 1)
+    """
     
-    query_train_completo = f"SELECT * FROM {tabla} WHERE foto_mes IN ({periodos_train_str})"
     query_test = f"SELECT * FROM {tabla} WHERE foto_mes = {mes_test}"
-    
-    # Obtener datos con fetchnumpy
+
+    # Obtener datos como dict de numpy arrays
     train_data = conn.execute(query_train_completo).fetchnumpy()
     test_data = conn.execute(query_test).fetchnumpy()
     
     # Preparar features y target
     feature_cols = [col for col in train_data.keys() 
-                    if col not in ['target_binario', 'target_ternario']]
+                    if col not in ['target_binario', 'target_ternario','foto_mes']]
     
     X_train_completo = np.column_stack([train_data[col] for col in feature_cols])
     y_train_completo = train_data['target_binario']
@@ -474,7 +479,7 @@ def guardar_resultados_test(resultados_test, mes_test, archivo_base=None):
     resultados_test['datetime'] = datetime.now().isoformat()
     resultados_test['configuracion'] = {
         'semilla': SEMILLAS[0],
-        'meses_train': MESES_TRAIN + [MES_VALIDACION],
+        'meses_train_b': MESES_TRAIN_BAJA + MES_VALIDACION,
         'mes_test': mes_test
     }
     
