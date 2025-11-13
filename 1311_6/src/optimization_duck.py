@@ -310,10 +310,13 @@ def optimizar(conn, tabla: str, study_name: str = None, n_trials=100) -> optuna.
 def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dict:
     """
     Evalúa el modelo con los mejores hiperparámetros en test.
+    Usa solo los últimos MIN_TRAIN_SIZE meses para ser consistente con CV.
+    
     Args:
         conn: Conexión a DuckDB
         tabla: Nombre de la tabla
-        study
+        study: Estudio de Optuna
+        mes_test: Período de test
     
     Returns:
         dict: Resultados de evaluación en test
@@ -324,8 +327,13 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
     mejores_params = study.best_params
     best_iteration = study.best_trial.user_attrs['best_iteration']
 
-    # Usar PERIODOS_TRAIN directamente
-    periodos_train_str = ','.join(map(str, PERIODOS_TRAIN))
+    # CONSISTENCIA: Usar solo últimos MIN_TRAIN_SIZE meses (igual que en CV)
+    ultimos_meses = PERIODOS_TRAIN[-MIN_TRAIN_SIZE:]
+    
+    logger.info(f"Entrenando con últimos {MIN_TRAIN_SIZE} meses: {ultimos_meses}")
+    logger.info(f"Esto es CONSISTENTE con CV rolling window de {MIN_TRAIN_SIZE} meses")
+    
+    periodos_train_str = ','.join(map(str, ultimos_meses))
     
     query_train_completo = f"""
         WITH clase_0_sample AS (
@@ -345,12 +353,19 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
     """
     
     periodos_test_str = ','.join(map(str, mes_test))
-    
     query_test = f"SELECT * FROM {tabla} WHERE foto_mes in ({periodos_test_str})"
 
     # Obtener datos como dict de numpy arrays
     train_data = conn.execute(query_train_completo).fetchnumpy()
     test_data = conn.execute(query_test).fetchnumpy()
+    
+    # Log de tamaños
+    n_clase_0 = (train_data['target_binario'] == 0).sum()
+    n_clase_1 = (train_data['target_binario'] == 1).sum()
+    
+    logger.info(f"Train completo: {len(train_data['target_binario']):,} registros")
+    logger.info(f"  Clase 0: {n_clase_0:,} | Clase 1: {n_clase_1:,} | Ratio: {n_clase_1/n_clase_0:.2f}:1")
+    logger.info(f"Test: {len(test_data['target_binario']):,} registros")
     
     # Preparar features y target
     feature_cols = [col for col in train_data.keys() 
@@ -361,16 +376,14 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
     
     X_test = np.column_stack([test_data[col] for col in feature_cols])
     y_test = test_data['target_ternario']
-    
-    logger.info(f"Train completo: {len(y_train_completo)} registros")
-    logger.info(f"Test: {len(y_test)} registros")
 
-    #models = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-    #y_pred_futuro = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-    models = [0,0,0,0,0]
-    y_pred_futuro = [0,0,0,0,0]
+    models = [0] * len(SEMILLAS)
+    y_pred_futuro = [0] * len(SEMILLAS)
+    
     # Entrenar con mejores parámetros
     for i in range(len(SEMILLAS)):       
+        logger.info(f"Entrenando modelo {i+1}/{len(SEMILLAS)} con semilla {SEMILLAS[i]}")
+        
         params = {
             'objective': 'binary',
             'boosting_type': 'gbdt',
@@ -378,10 +391,8 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
             'boost_from_average': True,
             'feature_pre_filter': False,
             'max_bin': 31,
-            'verbose': 0,
+            'verbose': -1,
             'is_unbalance': True,
-            'boost_from_average': True,
-            'feature_pre_filter': True,
             'bagging_freq': 1,
             'n_jobs': -1,
             'seed': SEMILLAS[i],
@@ -391,7 +402,6 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
             'min_data_in_leaf': mejores_params['min_data_in_leaf'],
             'feature_fraction': mejores_params['feature_fraction'],
             'bagging_fraction': mejores_params['bagging_fraction'],
-            
             'reg_alpha': mejores_params['reg_alpha'],
             'reg_lambda': mejores_params['reg_lambda'],
             'max_depth': mejores_params['max_depth'] 
@@ -407,23 +417,25 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
             params,
             train_set,
             num_boost_round=best_iteration,
-            callbacks=[lgb.log_evaluation(period=100)]
+            callbacks=[lgb.log_evaluation(period=0)]
         )
     
         # Predecir en test
         y_pred_futuro[i] = models[i].predict(X_test)
-        logger.info(f"Entrenamiento con semilla {i} de {len(SEMILLAS)} completadas")
         _, ganancia_test_semilla, _ = ganancia_evaluator(y_pred_futuro[i], lgb.Dataset(X_test, label=y_test))
-        logger.info(f"Ganancia en test para esta semilla: {ganancia_test_semilla:,.0f}")
+        logger.info(f"Ganancia con semilla {SEMILLAS[i]}: {ganancia_test_semilla:,.0f}")
+        
+        del train_set
+        gc.collect()
     
+    # Promedio de predicciones
     pred_matrix = np.column_stack(y_pred_futuro)
     y_pred_promedio = pred_matrix.mean(axis=1) 
     
-    # Calcular ganancia usando tu función que no necesita threshold
+    # Calcular ganancia
     _, ganancia_test, _ = ganancia_evaluator(y_pred_promedio, lgb.Dataset(X_test, label=y_test))
     
-    # Estadísticas: contar cuántos estarían en el corte óptimo
-    # (opcional, si querés saber cuántos enviarías)
+    # Estadísticas
     df_eval = pl.DataFrame({
         'y_true': y_test,
         'y_pred_proba': y_pred_promedio
@@ -440,12 +452,9 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
         pl.col('ganancia_individual').cum_sum().alias('ganancia_acumulada')
     ])
     
-    # Encontrar el índice donde está la ganancia máxima
-    idx_max = df_ordenado.select(
-        pl.col('ganancia_acumulada').arg_max()
-    ).item()
+    idx_max = df_ordenado.select(pl.col('ganancia_acumulada').arg_max()).item()
     
-    predicciones_positivas = idx_max + 1  # +1 porque es índice 0-based
+    predicciones_positivas = idx_max + 1
     total_predicciones = len(y_test)
     porcentaje_positivas = (predicciones_positivas / total_predicciones) * 100
     
@@ -454,14 +463,23 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str) -> dic
         'total_predicciones': int(total_predicciones),
         'predicciones_positivas': int(predicciones_positivas),
         'porcentaje_positivas': float(porcentaje_positivas),
-        'parametros_usados': mejores_params
+        'parametros_usados': mejores_params,
+        'best_iteration': int(best_iteration),
+        'periodos_train_usados': ultimos_meses,  # Documentar qué períodos se usaron
+        'undersampling_ratio': UNDERSAMPLING_RATIO
     }
     
+    logger.info(f"=== RESULTADOS FINALES ===")
     logger.info(f"Ganancia en test: {ganancia_test:,.0f}")
-    logger.info(f"Enviarías estímulo a: {predicciones_positivas} clientes ({porcentaje_positivas:.2f}%)")
+    logger.info(f"Enviarías estímulo a: {predicciones_positivas:,} clientes ({porcentaje_positivas:.2f}%)")
+    logger.info(f"Períodos usados para train: {ultimos_meses}")
+    
+    # Limpiar memoria
+    del X_train_completo, y_train_completo, X_test, y_test, train_data, test_data
+    del models, y_pred_futuro, pred_matrix, y_pred_promedio
+    gc.collect()
     
     return resultados
-
 
 def guardar_resultados_test(resultados_test, mes_test, archivo_base=None):
     """
