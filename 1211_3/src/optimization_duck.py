@@ -466,7 +466,7 @@ def guardar_resultados_test(resultados_test, mes_test, archivo_base=None):
     resultados_test['datetime'] = datetime.now().isoformat()
     resultados_test['configuracion'] = {
         'semilla': SEMILLAS[0],
-        'meses_train': MESES_TRAIN + MES_VALIDACION,
+        'meses_train': MESES_TRAIN + [MES_VALIDACION],
         'mes_test': mes_test
     }
     
