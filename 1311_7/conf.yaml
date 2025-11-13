@@ -33,10 +33,10 @@ configuracion:
     # Time Series Cross Validation - EXPANDING con muchos datos
     N_SPLITS: 5
     CV_STRATEGY: "expanding"  # ← CAMBIO
-    MIN_TRAIN_SIZE: 12  # Mínimo 1 año
+    MIN_TRAIN_SIZE: 12  
     VALIDATION_SIZE: 1
     GAP: 0
-    UNDERSAMPLING_RATIO: 0.10  # ← AUMENTAR como compañeros
+    UNDERSAMPLING_RATIO: 0.10
     
     # Legacy (si los necesitás para otras cosas)
     FINAL_TRAIN: ["202008","202010", "202011", "202012", "202101","202102"] 
