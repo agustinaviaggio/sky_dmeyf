@@ -513,11 +513,6 @@ def main():
         if conn:
             conn.close()
             logger.info("Conexión a DuckDB cerrada.")
-    
-        db_path = "/home/agustinaviaggio/buckets/b1/temp_processing.duckdb"
-        if os.path.exists(db_path):
-            os.remove(db_path)
-            logger.info("Archivo temporal DuckDB eliminado.")
 
 if __name__ == "__main__":
     main()

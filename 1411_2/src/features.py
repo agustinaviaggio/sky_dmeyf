@@ -1,6 +1,5 @@
 import duckdb
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -41,42 +40,37 @@ logger = logging.getLogger(__name__)
         conn.close()
         raise'''
 
+import os
+import gc
+
 def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
     '''
-    Carga un CSV desde 'path' en una tabla DuckDB en disco (bucket) y retorna 
+    Carga un CSV desde 'path' en una tabla DuckDB en memoria y retorna 
     el objeto de conexión para interactuar con esa tabla.
     '''
     logger.info(f"Cargando dataset desde {path}")
-    
-    # Usar bucket en lugar de :memory:
-    db_path = "/home/agustinaviaggio/buckets/b1/temp_processing.duckdb"
-    temp_dir = "/home/agustinaviaggio/buckets/b1/temp"
-    
-    # Crear directorio temporal si no existe
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    # Limpiar DB anterior si existe
-    if os.path.exists(db_path):
-        os.remove(db_path)
-    
-    conn = duckdb.connect(database=db_path)
+    conn = duckdb.connect(database=':memory:')
     
     try:
-        # Configurar DuckDB para aprovechar tus recursos
-        conn.execute("SET memory_limit='100GB'")
-        conn.execute("SET max_temp_directory_size='500GB'")
-        conn.execute("SET preserve_insertion_order=false")
-        conn.execute("SET threads=24")
-        conn.execute(f"SET temp_directory='{temp_dir}'")
+        # Configuración agresiva para mantener todo en RAM
+        conn.execute("SET memory_limit='110GB'")  # Usar casi toda tu RAM
+        conn.execute("SET threads=28")  # Más threads
+        conn.execute("SET preserve_insertion_order=false")  # Menos overhead
+        conn.execute("SET temp_directory='/tmp'")  # Por si acaso necesita spillover
         
-        logger.info("Configuración DuckDB: 100GB RAM, 500GB temp, 24 threads")
+        # CRÍTICO: Deshabilitar streaming para cargas grandes
+        conn.execute("SET force_external=false")
         
-        # Cargar datos
+        logger.info("Configuración DuckDB: 110GB RAM, 28 threads, todo en memoria")
+        
         conn.execute(f"""
             CREATE OR REPLACE TABLE {table_name} AS
             SELECT *
             FROM read_csv_auto('{path}', auto_type_candidates=['VARCHAR', 'FLOAT', 'INTEGER'])
         """)
+        
+        # Forzar garbage collection después de la carga
+        gc.collect()
         
         return conn
     
@@ -1720,6 +1714,10 @@ def create_sudden_change_features(conn: duckdb.DuckDBPyConnection, table_name: s
     conn.execute(sql_final)
     conn.execute("DROP TABLE IF EXISTS temp_zscores")
     
+    # Limpieza agresiva
+    conn.execute("CHECKPOINT")
+    gc.collect()
+    
     logger.info(f"Cambios bruscos detectados exitosamente")
     return conn
 
@@ -1840,6 +1838,10 @@ def create_all_window_attributes(conn, table_name, excluir_columnas, month_windo
     
     conn.execute(sql_join)
     conn.execute("DROP TABLE IF EXISTS temp_window")
+    
+    # Limpieza agresiva
+    conn.execute("CHECKPOINT")
+    gc.collect()
     
     logger.info(f"Todas las window features creadas exitosamente")
     return conn
@@ -2058,6 +2060,10 @@ def create_trend_features(conn: duckdb.DuckDBPyConnection, table_name: str, colu
     
     conn.execute(sql_final)
     conn.execute("DROP TABLE IF EXISTS temp_with_idx")
+    
+    # Limpieza agresiva
+    conn.execute("CHECKPOINT")
+    gc.collect()
     
     logger.info(f"Tendencias (slope) creadas exitosamente")
     return conn
