@@ -41,7 +41,7 @@ def main():
         conn = drop_columns(conn, SQL_TABLE_NAME, cols_to_drop)
     
         # 2. Columnas con baja cardinalidad
-        low_cardinality_cols = get_low_cardinality_columns(conn, SQL_TABLE_NAME, max_unique=10)
+        #low_cardinality_cols = get_low_cardinality_columns(conn, SQL_TABLE_NAME, max_unique=10)
 
         # 3. Crear atributos tipo fecha mayor y menor para las tarjetas de crédito
         column_pairs = [
