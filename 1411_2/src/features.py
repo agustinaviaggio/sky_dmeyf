@@ -57,10 +57,7 @@ def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
         conn.execute("SET threads=28")  # Más threads
         conn.execute("SET preserve_insertion_order=false")  # Menos overhead
         conn.execute("SET temp_directory='/tmp'")  # Por si acaso necesita spillover
-        
-        # CRÍTICO: Deshabilitar streaming para cargas grandes
-        conn.execute("SET force_external=false")
-        
+                
         logger.info("Configuración DuckDB: 110GB RAM, 28 threads, todo en memoria")
         
         conn.execute(f"""
