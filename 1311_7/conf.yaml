@@ -32,7 +32,7 @@ configuracion:
     
     # Time Series Cross Validation - EXPANDING con muchos datos
     N_SPLITS: 5
-    CV_STRATEGY: "expanding"  # ← CAMBIO
+    CV_STRATEGY: "expanding"
     MIN_TRAIN_SIZE: 12  
     VALIDATION_SIZE: 1
     GAP: 0

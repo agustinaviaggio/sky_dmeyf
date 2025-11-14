@@ -16,7 +16,7 @@ def objetivo_ganancia(trial, conn, tabla: str, cv_splits: list) -> float:
     """
     Función objetivo con Time Series CV y undersampling.
     """
-    # Hiperparámetros a optimizar f 
+    # Hiperparámetros a optimizar
     num_leaves = trial.suggest_int('num_leaves', 8, 50) 
     min_data_in_leaf = trial.suggest_int('min_data_in_leaf', 50, 500) 
     feature_fraction = trial.suggest_float('feature_fraction', 0.3, 0.8) 
@@ -50,8 +50,7 @@ def objetivo_ganancia(trial, conn, tabla: str, cv_splits: list) -> float:
     
     ganancias_folds = []
     best_iterations = []
-    stats_folds = []
-
+    
     # LOOP SOBRE FOLDS
     for fold_idx, (train_periods, val_periods) in enumerate(cv_splits):
         logger.info(f"Trial {trial.number} - Fold {fold_idx+1}/{len(cv_splits)}")
@@ -82,32 +81,6 @@ def objetivo_ganancia(trial, conn, tabla: str, cv_splits: list) -> float:
         # Obtener datos
         train_data = conn.execute(query_train).fetchnumpy()
         val_data = conn.execute(query_val).fetchnumpy()
-
-                # ESTADÍSTICAS DETALLADAS
-        n_train_clase_0 = (train_data['target_binario'] == 0).sum()
-        n_train_clase_1 = (train_data['target_binario'] == 1).sum()
-        
-        n_val_total = len(val_data['target_ternario'])
-        n_val_continua = (val_data['target_ternario'] == 0).sum()
-        n_val_baja1 = (val_data['target_ternario'] == 2).sum()
-        n_val_baja2 = (val_data['target_ternario'] == 1).sum()
-        
-        pct_baja2 = (n_val_baja2 / n_val_total * 100) if n_val_total > 0 else 0
-        
-        logger.info(f"Trial {trial.number} - Fold {fold_idx+1} - TRAIN:")
-        logger.info(f"  Clase 0: {n_train_clase_0:,} | Clase 1: {n_train_clase_1:,}")
-        logger.info(f"Trial {trial.number} - Fold {fold_idx+1} - VALIDACIÓN:")
-        logger.info(f"  Total: {n_val_total:,}")
-        logger.info(f"  CONTINUA (0): {n_val_continua:,} ({n_val_continua/n_val_total*100:.1f}%)")
-        logger.info(f"  BAJA+1 (2): {n_val_baja1:,} ({n_val_baja1/n_val_total*100:.1f}%)")
-        logger.info(f"  BAJA+2 (1): {n_val_baja2:,} ({pct_baja2:.1f}%) ← OBJETIVO")
-        
-        fold_stats = {
-            'fold': fold_idx + 1,
-            'val_periods': val_periods,
-            'val_baja2': int(n_val_baja2),
-            'val_baja2_pct': float(pct_baja2)
-        }
         
         logger.info(f"Trial {trial.number} - Fold {fold_idx+1} - Train: Clase 0={(train_data['target_binario']==0).sum():,}, Clase 1={(train_data['target_binario']==1).sum():,}")
         
@@ -144,9 +117,6 @@ def objetivo_ganancia(trial, conn, tabla: str, cv_splits: list) -> float:
         
         ganancias_folds.append(ganancia_val)
         best_iterations.append(model.best_iteration)
-
-        fold_stats['ganancia'] = float(ganancia_val)
-        stats_folds.append(fold_stats)
         
         logger.info(f"Trial {trial.number} - Fold {fold_idx+1} - Ganancia: {ganancia_val:,.0f}")
         
@@ -162,7 +132,6 @@ def objetivo_ganancia(trial, conn, tabla: str, cv_splits: list) -> float:
     trial.set_user_attr('ganancia_std', float(ganancia_std))
     trial.set_user_attr('best_iteration', best_iteration_promedio)
     trial.set_user_attr('best_iterations_folds', best_iterations)
-    trial.set_user_attr('stats_folds', stats_folds)
     
     # Guardar feature importance del último fold
     if 'model' in locals():
@@ -174,14 +143,7 @@ def objetivo_ganancia(trial, conn, tabla: str, cv_splits: list) -> float:
         trial.set_user_attr('top_importance', [float(imp) for _, imp in top_10])
     
     logger.info(f"Trial {trial.number} - Ganancia promedio: {ganancia_promedio:,.0f} ± {ganancia_std:,.0f}")
-    logger.info(f"\n{'='*60}")
-    logger.info(f"Trial {trial.number} - RESUMEN:")
-    logger.info(f"{'='*60}")
-    for stats in stats_folds:
-        logger.info(f"Fold {stats['fold']}: Val={stats['val_periods']} | "
-                   f"BAJA+2={stats['val_baja2']:,} ({stats['val_baja2_pct']:.1f}%) | "
-                   f"Ganancia={stats['ganancia']:,.0f}")
-    logger.info(f"{'='*60}\n")
+    
     guardar_iteracion(trial, ganancia_promedio)
     
     return ganancia_promedio
