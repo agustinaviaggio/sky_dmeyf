@@ -3,7 +3,7 @@
 # ==========================================================
 
 # Parámetros Globales (Directamente mapeados a variables en config.py)
-STUDY_NAME: "1411_1"
+STUDY_NAME: "1411_2"
 
 configuracion:
     # Ruta al archivo de datos de entrada
