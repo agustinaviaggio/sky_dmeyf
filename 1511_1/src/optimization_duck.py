@@ -18,6 +18,7 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
     Función objetivo con 5-fold CV estándar.
     Usa períodos diferentes para clase 0 y clase 1.
     Entrena con target_binario, evalúa con target_ternario.
+    Cada fold usa una muestra diferente de clase 0 (semilla específica por fold).
     """
     # Hiperparámetros a optimizar
     num_leaves = trial.suggest_int('num_leaves', 8, 50) 
@@ -51,115 +52,126 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
         'verbose': -1
     }
     
-    # Obtener dataset completo una sola vez
     periodos_clase1_str = ','.join(map(str, PERIODOS_CLASE_1))
     periodos_clase0_str = ','.join(map(str, PERIODOS_CLASE_0))
-    
-    query_completo = f"""
-        WITH clase_0_sample AS (
-            SELECT * FROM {tabla}
-            WHERE foto_mes IN ({periodos_clase0_str}) 
-              AND target_binario = 0
-            USING SAMPLE {UNDERSAMPLING_RATIO * 100} PERCENT (bernoulli, {SEMILLAS[0]})
-        ),
-        clase_1_completa AS (
-            SELECT * FROM {tabla}
-            WHERE foto_mes IN ({periodos_clase1_str}) 
-              AND target_binario = 1
-        )
-        SELECT * FROM clase_0_sample
-        UNION ALL
-        SELECT * FROM clase_1_completa
-    """
-    
-    data = conn.execute(query_completo).fetchnumpy()
-    
-    # Estadísticas del dataset completo
-    n_total = len(data['target_binario'])
-    n_clase_0 = (data['target_binario'] == 0).sum()
-    n_clase_1 = (data['target_binario'] == 1).sum()
-    
-    logger.info(f"Trial {trial.number} - Dataset completo:")
-    logger.info(f"  Total: {n_total:,} registros")
-    logger.info(f"  Clase 0: {n_clase_0:,} ({n_clase_0/n_total*100:.1f}%)")
-    logger.info(f"  Clase 1: {n_clase_1:,} ({n_clase_1/n_total*100:.1f}%)")
-    logger.info(f"  Ratio: {n_clase_1/n_clase_0:.3f}:1")
-    
-    # Preparar features
-    feature_cols = [col for col in data.keys() 
-                   if col not in ['target_binario', 'target_ternario', 'foto_mes']]
-    
-    X = np.column_stack([data[col] for col in feature_cols])
-    y_binario = data['target_binario']
-    y_ternario = data['target_ternario']
-    
-    # 5-Fold CV
-    kfold = KFold(n_splits=N_SPLITS, shuffle=True, random_state=SEMILLAS[0])
     
     ganancias_folds = []
     best_iterations = []
     stats_folds = []
     
-    for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(X)):
+    # Loop sobre folds - cada fold con su propia muestra
+    for fold_idx in range(N_SPLITS):
         logger.info(f"Trial {trial.number} - Fold {fold_idx+1}/{N_SPLITS}")
         
-        X_train = X[train_idx]
-        y_train = y_binario[train_idx]
+        # Semilla específica para este fold (análogo a Time Series CV)
+        semilla_fold = SEMILLAS[0] + fold_idx
         
-        X_val = X[val_idx]
-        y_val = y_ternario[val_idx]
+        # Query con undersampling usando semilla del fold
+        query_completo = f"""
+            WITH clase_0_sample AS (
+                SELECT * FROM {tabla}
+                WHERE foto_mes IN ({periodos_clase0_str}) 
+                  AND target_binario = 0
+                USING SAMPLE {UNDERSAMPLING_RATIO * 100} PERCENT (bernoulli, {semilla_fold})
+            ),
+            clase_1_completa AS (
+                SELECT * FROM {tabla}
+                WHERE foto_mes IN ({periodos_clase1_str}) 
+                  AND target_binario = 1
+            )
+            SELECT * FROM clase_0_sample
+            UNION ALL
+            SELECT * FROM clase_1_completa
+        """
         
-        # Estadísticas del fold
-        n_train_clase_0 = (y_train == 0).sum()
-        n_train_clase_1 = (y_train == 1).sum()
+        data = conn.execute(query_completo).fetchnumpy()
         
-        n_val_total = len(y_val)
-        n_val_clase_0 = (y_val == 0).sum()
-        n_val_clase_1 = (y_val == 1).sum()
-        pct_clase_1 = (n_val_clase_1 / n_val_total * 100) if n_val_total > 0 else 0
+        # Estadísticas del dataset de este fold
+        n_total = len(data['target_binario'])
+        n_clase_0 = (data['target_binario'] == 0).sum()
+        n_clase_1 = (data['target_binario'] == 1).sum()
         
-        logger.info(f"  TRAIN: Clase 0={n_train_clase_0:,}, Clase 1={n_train_clase_1:,}")
-        logger.info(f"  VAL: Total={n_val_total:,}, Clase 1 (BAJA+2)={n_val_clase_1:,} ({pct_clase_1:.1f}%)")
+        logger.info(f"  Dataset fold (semilla={semilla_fold}):")
+        logger.info(f"    Total: {n_total:,} registros")
+        logger.info(f"    Clase 0: {n_clase_0:,} ({n_clase_0/n_total*100:.1f}%)")
+        logger.info(f"    Clase 1: {n_clase_1:,} ({n_clase_1/n_total*100:.1f}%)")
+        logger.info(f"    Ratio: {n_clase_1/n_clase_0:.3f}:1")
         
-        fold_stats = {
-            'fold': fold_idx + 1,
-            'train_clase_0': int(n_train_clase_0),
-            'train_clase_1': int(n_train_clase_1),
-            'val_total': int(n_val_total),
-            'val_clase_1': int(n_val_clase_1),
-            'val_clase_1_pct': float(pct_clase_1)
-        }
+        # Preparar features
+        feature_cols = [col for col in data.keys() 
+                       if col not in ['target_binario', 'target_ternario', 'foto_mes']]
         
-        # Entrenar con target_binario
-        train_set = lgb.Dataset(X_train, label=y_train, feature_name=feature_cols)
-        # Evaluar con target_ternario
-        val_set = lgb.Dataset(X_val, label=y_val, reference=train_set)
+        X = np.column_stack([data[col] for col in feature_cols])
+        y_binario = data['target_binario']
+        y_ternario = data['target_ternario']
         
-        model = lgb.train(
-            params,
-            train_set,
-            num_boost_round=5000,
-            valid_sets=[val_set],
-            valid_names=['validation'],
-            feval=ganancia_evaluator,
-            callbacks=[
-                lgb.early_stopping(int(50 + 0.05 / learning_rate)),
-                lgb.log_evaluation(period=0)
-            ]
-        )
+        # KFold para obtener SOLO el fold específico
+        kfold = KFold(n_splits=N_SPLITS, shuffle=True, random_state=SEMILLAS[0])
         
-        # Evaluar
-        y_pred = model.predict(X_val)
-        _, ganancia_val, _ = ganancia_evaluator(y_pred, lgb.Dataset(X_val, label=y_val))
+        for current_idx, (train_idx, val_idx) in enumerate(kfold.split(X)):
+            if current_idx != fold_idx:
+                continue
+            
+            X_train = X[train_idx]
+            y_train = y_binario[train_idx]
+            X_val = X[val_idx]
+            y_val = y_ternario[val_idx]
+            
+            # Estadísticas del fold
+            n_train_clase_0 = (y_train == 0).sum()
+            n_train_clase_1 = (y_train == 1).sum()
+            n_val_total = len(y_val)
+            n_val_clase_0 = (y_val == 0).sum()
+            n_val_clase_1 = (y_val == 1).sum()
+            pct_clase_1 = (n_val_clase_1 / n_val_total * 100) if n_val_total > 0 else 0
+            
+            logger.info(f"  TRAIN: Clase 0={n_train_clase_0:,}, Clase 1={n_train_clase_1:,}")
+            logger.info(f"  VAL: Total={n_val_total:,}, Clase 1 (BAJA+2)={n_val_clase_1:,} ({pct_clase_1:.1f}%)")
+            
+            fold_stats = {
+                'fold': fold_idx + 1,
+                'semilla_fold': int(semilla_fold),
+                'train_clase_0': int(n_train_clase_0),
+                'train_clase_1': int(n_train_clase_1),
+                'val_total': int(n_val_total),
+                'val_clase_1': int(n_val_clase_1),
+                'val_clase_1_pct': float(pct_clase_1)
+            }
+            
+            # Entrenar con target_binario
+            train_set = lgb.Dataset(X_train, label=y_train, feature_name=feature_cols)
+            # Evaluar con target_ternario
+            val_set = lgb.Dataset(X_val, label=y_val, reference=train_set)
+            
+            model = lgb.train(
+                params,
+                train_set,
+                num_boost_round=5000,
+                valid_sets=[val_set],
+                valid_names=['validation'],
+                feval=ganancia_evaluator,
+                callbacks=[
+                    lgb.early_stopping(int(50 + 0.05 / learning_rate)),
+                    lgb.log_evaluation(period=0)
+                ]
+            )
+            
+            # Evaluar
+            y_pred = model.predict(X_val)
+            _, ganancia_val, _ = ganancia_evaluator(y_pred, lgb.Dataset(X_val, label=y_val))
+            
+            ganancias_folds.append(ganancia_val)
+            best_iterations.append(model.best_iteration)
+            fold_stats['ganancia'] = float(ganancia_val)
+            stats_folds.append(fold_stats)
+            
+            logger.info(f"  Ganancia: {ganancia_val:,.0f}, Best iteration: {model.best_iteration}")
+            
+            del X_train, y_train, X_val, y_val, model, train_set, val_set, y_pred
+            gc.collect()
         
-        ganancias_folds.append(ganancia_val)
-        best_iterations.append(model.best_iteration)
-        fold_stats['ganancia'] = float(ganancia_val)
-        stats_folds.append(fold_stats)
-        
-        logger.info(f"  Ganancia: {ganancia_val:,.0f}, Best iteration: {model.best_iteration}")
-        
-        del X_train, y_train, X_val, y_val, model, train_set, val_set, y_pred
+        # Limpiar memoria después de cada fold
+        del data, X, y_binario, y_ternario
         gc.collect()
     
     # Promediar resultados
@@ -173,22 +185,27 @@ def objetivo_ganancia(trial, conn, tabla: str) -> float:
     trial.set_user_attr('best_iterations_folds', best_iterations)
     trial.set_user_attr('stats_folds', stats_folds)
     
+    # Feature importance del último modelo (si existe)
+    if 'model' in locals():
+        feature_importance = model.feature_importance()
+        feature_names = feature_cols
+        top_10 = sorted(zip(feature_names, feature_importance), 
+                        key=lambda x: x[1], reverse=True)[:10]
+        trial.set_user_attr('top_features', [name for name, _ in top_10])
+        trial.set_user_attr('top_importance', [float(imp) for _, imp in top_10])
+    
     logger.info(f"Trial {trial.number} - Ganancia promedio: {ganancia_promedio:,.0f} ± {ganancia_std:,.0f}")
     logger.info(f"Best iterations: {best_iterations}, Promedio: {best_iteration_promedio}")
     logger.info(f"\n{'='*60}")
     logger.info(f"Trial {trial.number} - RESUMEN:")
     logger.info(f"{'='*60}")
     for stats in stats_folds:
-        logger.info(f"Fold {stats['fold']}: "
+        logger.info(f"Fold {stats['fold']} (semilla={stats['semilla_fold']}): "
                    f"Clase 1={stats['val_clase_1']:,} ({stats['val_clase_1_pct']:.1f}%) | "
                    f"Ganancia={stats['ganancia']:,.0f}")
     logger.info(f"{'='*60}\n")
     
     guardar_iteracion(trial, ganancia_promedio)
-    
-    # Limpiar memoria
-    del data, X, y_binario, y_ternario
-    gc.collect()
     
     return ganancia_promedio
 
