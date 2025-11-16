@@ -26,13 +26,13 @@ models:
   #  study_db: "~/buckets/b1/optuna_db/1311_7.db"
   #  config_dir: "~/sky_dmeyf/1311_7"
     
-  #- study_name: "1411_2"
-  #  study_db: "~/buckets/b1/optuna_db/1411_2.db"
-  #  config_dir: "~/sky_dmeyf/1411_2"
+  - study_name: "1411_2"
+    study_db: "~/buckets/b1/optuna_db/1411_2.db"
+    config_dir: "~/sky_dmeyf/1411_2"
     
-  - study_name: "1411_3"
-    study_db: "~/buckets/b1/optuna_db/1411_3.db"
-    config_dir: "~/sky_dmeyf/1411_3"
+  #- study_name: "1411_3"
+  #  study_db: "~/buckets/b1/optuna_db/1411_3.db"
+  #  config_dir: "~/sky_dmeyf/1411_3"
     
   #- study_name: "1511_1"
   #  study_db: "~/buckets/b1/optuna_db/1511_1.db"
