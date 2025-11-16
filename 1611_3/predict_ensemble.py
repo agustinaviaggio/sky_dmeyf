@@ -1,15 +1,16 @@
-# predict_ensemble.py
+# predict_final_competition.py (VERSIÓN CORREGIDA)
 import yaml
 import duckdb
 import numpy as np
 import polars as pl
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Tuple, Dict
 import joblib
 import logging
 import os
 import gc
 from tqdm import tqdm
+from collections import defaultdict
 from src.features import create_sql_table_from_parquet
 
 logging.basicConfig(
@@ -18,10 +19,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class EnsemblePredictor:
+class CompetitionPredictor:
     def __init__(self, ensemble_config_path: str):
         """
-        Inicializa el predictor de ensemble.
+        Predictor para la competencia final.
         
         Args:
             ensemble_config_path: Ruta al YAML de configuración del ensemble
@@ -31,11 +32,11 @@ class EnsemblePredictor:
         
         self.output_dir = Path(self.ensemble_config['ensemble']['output_dir']).expanduser()
         self.models_dir = self.output_dir / "trained_models"
-        self.predictions_dir = self.output_dir / "predictions"
-        self.predictions_dir.mkdir(exist_ok=True)
+        self.final_output_dir = self.output_dir / "final_submission"
+        self.final_output_dir.mkdir(exist_ok=True)
         
-        logger.info(f"Ensemble directory: {self.output_dir}")
         logger.info(f"Models directory: {self.models_dir}")
+        logger.info(f"Final output: {self.final_output_dir}")
     
     def load_model_config(self, config_dir: str) -> dict:
         """Carga el conf.yaml del modelo"""
@@ -54,350 +55,397 @@ class EnsemblePredictor:
         
         return model_config
     
-    def predict_on_test(
+    def predict_by_study(
         self,
-        model,
-        feature_cols: List[str],
+        study_name: str,
+        model_files: List[Path],
         conn: duckdb.DuckDBPyConnection,
         table_name: str,
-        test_periods: List[str],
-        ganancia_acierto: int,
-        costo_estimulo: int
+        prediction_period: str = "202108"
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Predice con todos los modelos de un study específico.
+        
+        Returns:
+            Tuple[probabilidades_promedio, numero_de_cliente]
+        """
+        # Query para 202108
+        query = f"SELECT * FROM {table_name} WHERE foto_mes = '{prediction_period}'"
+        
+        logger.info(f"  Cargando datos de {prediction_period}...")
+        data = conn.execute(query).fetchnumpy()
+        
+        # Extraer numero_de_cliente
+        numero_de_cliente = data['numero_de_cliente']
+        
+        logger.info(f"  Total clientes: {len(numero_de_cliente):,}")
+        
+        # Predecir con cada modelo
+        study_predictions = []
+        
+        for model_file in tqdm(model_files, desc=f"  Prediciendo {study_name}"):
+            model_package = joblib.load(model_file)
+            model = model_package['model']
+            feature_cols = model_package['feature_cols']
+            
+            # Preparar features
+            X = np.column_stack([data[col] for col in feature_cols])
+            
+            # Predecir
+            pred = model.predict(X)
+            study_predictions.append(pred)
+            
+            # Limpiar
+            del model, model_package, X
+            gc.collect()
+        
+        # Promedio de este study
+        study_proba_avg = np.mean(study_predictions, axis=0)
+        
+        logger.info(f"  ✓ Predicciones completadas para {study_name}")
+        logger.info(f"    Modelos usados: {len(study_predictions)}")
+        logger.info(f"    Probabilidad media: {study_proba_avg.mean():.4f}")
+        
+        # Limpiar
+        del data, study_predictions
+        gc.collect()
+        
+        return study_proba_avg, numero_de_cliente
+    
+    def select_clients_fixed_threshold(
+        self,
+        probas: np.ndarray,
+        numero_de_cliente: np.ndarray,
+        n_envios: int = 11000
+    ) -> Tuple[np.ndarray, float]:
+        """
+        Selecciona top N clientes por probabilidad.
+        
+        Returns:
+            Tuple[clientes_seleccionados, umbral_probabilidad]
+        """
+        # Ordenar por probabilidad descendente
+        idx_sorted = np.argsort(probas)[::-1]
+        
+        # Top N
+        idx_selected = idx_sorted[:n_envios]
+        clientes_selected = numero_de_cliente[idx_selected]
+        umbral = probas[idx_sorted[n_envios-1]]
+        
+        logger.info(f"\nSelección por top {n_envios}:")
+        logger.info(f"  Clientes seleccionados: {len(clientes_selected):,}")
+        logger.info(f"  Umbral de probabilidad: {umbral:.6f}")
+        logger.info(f"  Probabilidad máxima seleccionada: {probas[idx_sorted[0]]:.6f}")
+        logger.info(f"  Probabilidad mínima seleccionada: {umbral:.6f}")
+        
+        return clientes_selected, umbral
+    
+    def select_clients_probability_threshold(
+        self,
+        probas: np.ndarray,
+        numero_de_cliente: np.ndarray,
+        ganancia_acierto: int = 780000,
+        costo_estimulo: int = 20000
+    ) -> Tuple[np.ndarray, float, int]:
+        """
+        Selecciona clientes donde: proba * ganancia > costo.
+        
+        Umbral óptimo: proba > costo / ganancia
+        
+        Returns:
+            Tuple[clientes_seleccionados, umbral_probabilidad, n_envios]
+        """
+        # Umbral teórico: punto de equilibrio
+        umbral_teorico = costo_estimulo / ganancia_acierto
+        
+        # Seleccionar clientes sobre el umbral
+        mask = probas > umbral_teorico
+        clientes_selected = numero_de_cliente[mask]
+        
+        logger.info(f"\nSelección por umbral de probabilidad:")
+        logger.info(f"  Umbral teórico (break-even): {umbral_teorico:.6f}")
+        logger.info(f"  Clientes seleccionados: {len(clientes_selected):,}")
+        if len(clientes_selected) > 0:
+            logger.info(f"  Probabilidad máxima seleccionada: {probas[mask].max():.6f}")
+            logger.info(f"  Probabilidad mínima seleccionada: {probas[mask].min():.6f}")
+        
+        return clientes_selected, umbral_teorico, len(clientes_selected)
+    
+    def estimate_expected_gain(
+        self,
+        probas: np.ndarray,
+        clientes_selected: np.ndarray,
+        numero_de_cliente: np.ndarray,
+        ganancia_acierto: int = 780000,
+        costo_estimulo: int = 20000
     ) -> dict:
         """
-        Hace predicción en conjunto de test y calcula ganancia.
+        Estima ganancia esperada basada en probabilidades.
+        
+        Ganancia esperada = sum(proba_i * ganancia - costo) para clientes seleccionados
         """
-        periodos_test_str = ','.join(map(str, test_periods))
-        query_test = f"SELECT * FROM {table_name} WHERE foto_mes IN ({periodos_test_str})"
+        # Crear mask de seleccionados
+        mask_selected = np.isin(numero_de_cliente, clientes_selected)
         
-        test_data = conn.execute(query_test).fetchnumpy()
+        # Probabilidades de los seleccionados
+        probas_selected = probas[mask_selected]
         
-        # Preparar features
-        X_test = np.column_stack([test_data[col] for col in feature_cols])
-        y_test = test_data['target_ternario']
+        # Ganancia esperada por cliente
+        ganancia_esperada_individual = probas_selected * ganancia_acierto - costo_estimulo
         
-        # Predecir
-        y_pred_proba = model.predict(X_test)
+        # Ganancia total esperada
+        ganancia_total_esperada = ganancia_esperada_individual.sum()
         
-        # Calcular ganancia óptima
-        df_eval = pl.DataFrame({
-            'y_true': y_test,
-            'y_pred_proba': y_pred_proba
-        })
-        
-        df_ordenado = df_eval.sort('y_pred_proba', descending=True)
-        df_ordenado = df_ordenado.with_columns([
-            pl.when(pl.col('y_true') == 1)
-              .then(ganancia_acierto)
-              .otherwise(-costo_estimulo)
-              .cast(pl.Int64)
-              .alias('ganancia_individual')
-        ])
-        df_ordenado = df_ordenado.with_columns([
-            pl.col('ganancia_individual').cum_sum().alias('ganancia_acumulada')
-        ])
-        
-        idx_max = df_ordenado.select(pl.col('ganancia_acumulada').arg_max()).item()
-        ganancia_maxima = df_ordenado.select(pl.col('ganancia_acumulada').max()).item()
-        
-        n_envios = idx_max + 1
+        # Estadísticas
+        n_positivo_esperado = probas_selected.sum()  # Número esperado de churns detectados
         
         result = {
-            'y_pred_proba': y_pred_proba,
-            'y_true': y_test,
-            'ganancia': float(ganancia_maxima),
-            'n_envios': int(n_envios),
-            'n_test': len(y_test)
+            'ganancia_total_esperada': float(ganancia_total_esperada),
+            'n_envios': len(clientes_selected),
+            'n_positivos_esperados': float(n_positivo_esperado),
+            'ganancia_promedio_por_envio': float(ganancia_total_esperada / len(clientes_selected)) if len(clientes_selected) > 0 else 0,
+            'probabilidad_media_seleccionados': float(probas_selected.mean()) if len(probas_selected) > 0 else 0
         }
         
-        del test_data, X_test
-        gc.collect()
+        logger.info(f"\nGanancia esperada estimada:")
+        logger.info(f"  Total esperado: ${result['ganancia_total_esperada']:,.0f}")
+        logger.info(f"  Envíos: {result['n_envios']:,}")
+        logger.info(f"  Churns esperados detectados: {result['n_positivos_esperados']:.1f}")
+        logger.info(f"  Ganancia promedio por envío: ${result['ganancia_promedio_por_envio']:,.0f}")
+        logger.info(f"  Probabilidad media: {result['probabilidad_media_seleccionados']:.4f}")
         
         return result
     
-    def predict_all(self):
-        """Genera predicciones para todos los modelos en test1 y test2"""
+    def save_submission(
+        self,
+        clientes_selected: np.ndarray,
+        filename: str = "submission.csv"
+    ):
+        """Guarda CSV para la competencia"""
+        output_path = self.final_output_dir / filename
         
-        models_config = self.ensemble_config['models']
-        test_periods_1 = self.ensemble_config['test']['MES_TEST_1']
-        test_periods_2 = self.ensemble_config['test']['MES_TEST_2']
+        df = pl.DataFrame({
+            'numero_de_cliente': clientes_selected
+        })
+        
+        # Ordenar por numero_de_cliente
+        df = df.sort('numero_de_cliente')
+        
+        df.write_csv(output_path)
+        
+        logger.info(f"\n✓ Submission guardado: {output_path}")
+        logger.info(f"  Total clientes: {len(df):,}")
+        
+        return output_path
+    
+    def run_prediction(self):
+        """Pipeline completo de predicción para la competencia"""
+        
         ganancia_acierto = self.ensemble_config['test']['GANANCIA_ACIERTO']
         costo_estimulo = self.ensemble_config['test']['COSTO_ESTIMULO']
+        models_config = self.ensemble_config['models']
         
-        all_predictions_test1 = []
-        all_predictions_test2 = []
-        all_results = []
+        logger.info(f"\n{'='*70}")
+        logger.info(f"PREDICCIÓN FINAL PARA COMPETENCIA")
+        logger.info(f"{'='*70}")
+        
+        # Agrupar modelos por study
+        models_by_study = defaultdict(list)
+        for model_file in self.models_dir.glob("*.pkl"):
+            study_name = model_file.stem.rsplit('_seed', 1)[0]
+            models_by_study[study_name].append(model_file)
+        
+        logger.info(f"\nModelos encontrados:")
+        for study, files in models_by_study.items():
+            logger.info(f"  {study}: {len(files)} modelos")
+        
+        # Predecir con cada study en su dataset
+        study_predictions = {}
+        numero_de_cliente = None
         
         for model_info in models_config:
             study_name = model_info['study_name']
             
-            logger.info(f"\n{'='*70}")
-            logger.info(f"PREDICCIONES: {study_name}")
-            logger.info(f"{'='*70}")
-            
-            conn = None
-            
-            try:
-                # 1. Cargar config del modelo
-                model_config = self.load_model_config(model_info['config_dir'])
-                
-                # 2. Determinar data_path
-                if 'DATA_PATH_OPT' in model_config:
-                    data_path = model_config['DATA_PATH_OPT']
-                else:
-                    raise ValueError(f"No se encontró DATA_PATH en config de {study_name}")
-                
-                # 3. Crear tabla en DuckDB
-                table_name = f"tabla_{study_name}"
-                data_path_expanded = os.path.expanduser(data_path)
-                
-                conn = create_sql_table_from_parquet(data_path_expanded, table_name)
-                
-                # 4. Cargar todos los modelos de este study
-                model_files = list(self.models_dir.glob(f"{study_name}_seed*.pkl"))
-                logger.info(f"Encontrados {len(model_files)} modelos")
-                
-                # 5. Predecir con cada modelo
-                for model_file in tqdm(model_files, desc=f"Prediciendo {study_name}"):
-                    try:
-                        # Cargar modelo
-                        model_package = joblib.load(model_file)
-                        model = model_package['model']
-                        feature_cols = model_package['feature_cols']
-                        semilla = model_package['semilla']
-                        
-                        # Predecir en TEST 1
-                        pred_test1 = self.predict_on_test(
-                            model, feature_cols, conn, table_name,
-                            test_periods_1, ganancia_acierto, costo_estimulo
-                        )
-                        
-                        # Predecir en TEST 2
-                        pred_test2 = self.predict_on_test(
-                            model, feature_cols, conn, table_name,
-                            test_periods_2, ganancia_acierto, costo_estimulo
-                        )
-                        
-                        # Guardar predicciones
-                        all_predictions_test1.append({
-                            'study_name': study_name,
-                            'semilla': semilla,
-                            'y_pred_proba': pred_test1['y_pred_proba'],
-                            'y_true': pred_test1['y_true']
-                        })
-                        
-                        all_predictions_test2.append({
-                            'study_name': study_name,
-                            'semilla': semilla,
-                            'y_pred_proba': pred_test2['y_pred_proba'],
-                            'y_true': pred_test2['y_true']
-                        })
-                        
-                        # Registrar resultado
-                        all_results.append({
-                            'study_name': study_name,
-                            'semilla': semilla,
-                            'ganancia_test1': pred_test1['ganancia'],
-                            'n_envios_test1': pred_test1['n_envios'],
-                            'ganancia_test2': pred_test2['ganancia'],
-                            'n_envios_test2': pred_test2['n_envios']
-                        })
-                        
-                        # Limpiar modelo de memoria
-                        del model, model_package
-                        gc.collect()
-                        
-                    except Exception as e:
-                        logger.error(f"Error prediciendo con {model_file.name}: {str(e)}")
-                        continue
-                
-            except Exception as e:
-                logger.error(f"Error en modelo {study_name}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                
-            finally:
-                if conn is not None:
-                    try:
-                        conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-                        conn.close()
-                        logger.info(f"Conexión cerrada para {study_name}")
-                    except Exception as e:
-                        logger.warning(f"Error al cerrar conexión de {study_name}: {e}")
-                gc.collect()
-        
-        # Guardar predicciones
-        logger.info("\nGuardando predicciones...")
-        self._save_predictions(all_predictions_test1, 'test1')
-        self._save_predictions(all_predictions_test2, 'test2')
-        
-        # Guardar resumen de resultados
-        if len(all_results) > 0:
-            results_df = pl.DataFrame(all_results)
-            results_csv = self.output_dir / "predictions_summary.csv"
-            results_df.write_csv(results_csv)
-            logger.info(f"Resumen guardado en: {results_csv}")
-        
-        # Analizar ensembles
-        logger.info("\nAnalizando estrategias de ensemble...")
-        self._analyze_ensembles(ganancia_acierto, costo_estimulo)
-        
-        logger.info(f"\n{'='*70}")
-        logger.info(f"PREDICCIONES COMPLETADAS")
-        logger.info(f"Total predicciones: {len(all_results)}")
-        logger.info(f"Predicciones guardadas en: {self.predictions_dir}")
-        logger.info(f"{'='*70}")
-        
-        return results_df if len(all_results) > 0 else pl.DataFrame()
-    
-    def _save_predictions(self, predictions: List[dict], test_name: str):
-        """Guarda predicciones en formato parquet"""
-        for pred in predictions:
-            filename = f"{pred['study_name']}_seed{pred['semilla']}_{test_name}.parquet"
-            filepath = self.predictions_dir / filename
-            
-            df = pl.DataFrame({
-                'y_pred_proba': pred['y_pred_proba'],
-                'y_true': pred['y_true']
-            })
-            
-            df.write_parquet(filepath)
-        
-        logger.info(f"Predicciones de {test_name} guardadas: {len(predictions)} archivos")
-    
-    def _analyze_ensembles(self, ganancia_acierto: int, costo_estimulo: int):
-        """
-        Analiza dos estrategias de ensemble:
-        1. Promedio simple de todas las predicciones
-        2. Promedio por modelo y luego entre modelos
-        """
-        logger.info(f"\n{'='*70}")
-        logger.info(f"ANÁLISIS DE ENSEMBLES")
-        logger.info(f"{'='*70}")
-        
-        for test_name in ['test1', 'test2']:
-            logger.info(f"\n--- {test_name.upper()} ---")
-            
-            # Cargar todas las predicciones
-            pred_files = list(self.predictions_dir.glob(f"*_{test_name}.parquet"))
-            
-            if len(pred_files) == 0:
-                logger.warning(f"No se encontraron predicciones para {test_name}")
+            if study_name not in models_by_study:
+                logger.warning(f"⚠️  No se encontraron modelos para {study_name}, saltando...")
                 continue
             
-            all_preds = []
-            study_preds = {}
+            logger.info(f"\n{'='*70}")
+            logger.info(f"PREDICIENDO: {study_name}")
+            logger.info(f"{'='*70}")
             
-            for pred_file in pred_files:
-                df_pred = pl.read_parquet(pred_file)
-                y_true = df_pred['y_true'].to_numpy()
-                y_pred = df_pred['y_pred_proba'].to_numpy()
-                
-                all_preds.append(y_pred)
-                
-                # Extraer study_name
-                study_name = pred_file.stem.split('_seed')[0]
-                if study_name not in study_preds:
-                    study_preds[study_name] = []
-                study_preds[study_name].append(y_pred)
+            # Cargar config del modelo
+            model_config = self.load_model_config(model_info['config_dir'])
             
-            # Estrategia 1: Promedio simple
-            y_pred_ensemble_simple = np.mean(all_preds, axis=0)
-            ganancia_simple = self._calculate_ganancia(
-                y_true, y_pred_ensemble_simple, ganancia_acierto, costo_estimulo
-            )
+            # Determinar data_path
+            if 'DATA_PATH_OPT' in model_config:
+                data_path = model_config['DATA_PATH_OPT']
+            else:
+                raise ValueError(f"No se encontró DATA_PATH en config de {study_name}")
             
-            logger.info(f"\nEstrategia 1 - Promedio simple ({len(all_preds)} predicciones):")
-            logger.info(f"  Ganancia: {ganancia_simple['ganancia']:,.0f}")
-            logger.info(f"  Envíos: {ganancia_simple['n_envios']:,}")
+            # Crear tabla en DuckDB
+            table_name = f"final_{study_name}_202108"
+            data_path_expanded = os.path.expanduser(data_path)
             
-            # Estrategia 2: Promedio por modelo, luego entre modelos
-            study_averages = []
-            for study_name, preds in study_preds.items():
-                study_avg = np.mean(preds, axis=0)
-                study_averages.append(study_avg)
-                
-                ganancia_study = self._calculate_ganancia(
-                    y_true, study_avg, ganancia_acierto, costo_estimulo
+            conn = create_sql_table_from_parquet(data_path_expanded, table_name)
+            
+            try:
+                # Predecir
+                study_proba, clientes = self.predict_by_study(
+                    study_name,
+                    models_by_study[study_name],
+                    conn,
+                    table_name
                 )
-                logger.info(f"\n  {study_name} (promedio {len(preds)} semillas):")
-                logger.info(f"    Ganancia: {ganancia_study['ganancia']:,.0f}")
-                logger.info(f"    Envíos: {ganancia_study['n_envios']:,}")
-            
-            # Promedio final
-            y_pred_ensemble_2stage = np.mean(study_averages, axis=0)
-            ganancia_2stage = self._calculate_ganancia(
-                y_true, y_pred_ensemble_2stage, ganancia_acierto, costo_estimulo
-            )
-            
-            logger.info(f"\nEstrategia 2 - Promedio 2 etapas ({len(study_averages)} modelos):")
-            logger.info(f"  Ganancia: {ganancia_2stage['ganancia']:,.0f}")
-            logger.info(f"  Envíos: {ganancia_2stage['n_envios']:,}")
-            
-            logger.info(f"\nComparación:")
-            logger.info(f"  Diferencia: {ganancia_2stage['ganancia'] - ganancia_simple['ganancia']:,.0f}")
-            
-            # Guardar análisis
-            import json
-            analysis_results = {
-                'test_name': test_name,
-                'estrategia_1_ganancia': float(ganancia_simple['ganancia']),
-                'estrategia_1_envios': int(ganancia_simple['n_envios']),
-                'estrategia_2_ganancia': float(ganancia_2stage['ganancia']),
-                'estrategia_2_envios': int(ganancia_2stage['n_envios']),
-                'diferencia': float(ganancia_2stage['ganancia'] - ganancia_simple['ganancia'])
-            }
-            
-            analysis_file = self.output_dir / f"ensemble_analysis_{test_name}.json"
-            with open(analysis_file, 'w') as f:
-                json.dump(analysis_results, f, indent=2)
-            
-            logger.info(f"\nAnálisis guardado en: {analysis_file}")
-    
-    def _calculate_ganancia(self, y_true: np.ndarray, y_pred_proba: np.ndarray,
-                           ganancia_acierto: int, costo_estimulo: int) -> dict:
-        """Calcula ganancia óptima"""
-        df_eval = pl.DataFrame({
-            'y_true': y_true,
-            'y_pred_proba': y_pred_proba
+                
+                study_predictions[study_name] = study_proba
+                
+                # Guardar numero_de_cliente (deberían ser iguales en todos)
+                if numero_de_cliente is None:
+                    numero_de_cliente = clientes
+                else:
+                    # Verificar que sean los mismos
+                    if not np.array_equal(numero_de_cliente, clientes):
+                        logger.warning(f"⚠️  Los clientes de {study_name} no coinciden con los anteriores!")
+                
+            finally:
+                conn.close()
+                gc.collect()
+        
+        # Ensemble: promedio de todos los studies
+        logger.info(f"\n{'='*70}")
+        logger.info(f"ENSEMBLE DE {len(study_predictions)} MODELOS")
+        logger.info(f"{'='*70}")
+        
+        ensemble_proba = np.mean(list(study_predictions.values()), axis=0)
+        
+        logger.info(f"\nEstadísticas del ensemble:")
+        logger.info(f"  Probabilidad media: {ensemble_proba.mean():.4f}")
+        logger.info(f"  Probabilidad máxima: {ensemble_proba.max():.4f}")
+        logger.info(f"  Probabilidad mínima: {ensemble_proba.min():.4f}")
+        
+        # Guardar probabilidades completas
+        df_probas = pl.DataFrame({
+            'numero_de_cliente': numero_de_cliente,
+            'probabilidad': ensemble_proba
         })
         
-        df_ordenado = df_eval.sort('y_pred_proba', descending=True)
-        df_ordenado = df_ordenado.with_columns([
-            pl.when(pl.col('y_true') == 1)
-              .then(ganancia_acierto)
-              .otherwise(-costo_estimulo)
-              .cast(pl.Int64)
-              .alias('ganancia_individual')
-        ])
-        df_ordenado = df_ordenado.with_columns([
-            pl.col('ganancia_individual').cum_sum().alias('ganancia_acumulada')
-        ])
+        # Agregar probabilidades por study
+        for study_name, probas in study_predictions.items():
+            df_probas = df_probas.with_columns(
+                pl.Series(name=f'proba_{study_name}', values=probas)
+            )
         
-        idx_max = df_ordenado.select(pl.col('ganancia_acumulada').arg_max()).item()
-        ganancia_maxima = df_ordenado.select(pl.col('ganancia_acumulada').max()).item()
+        probas_file = self.final_output_dir / "probabilidades_202108.parquet"
+        df_probas.write_parquet(probas_file)
+        logger.info(f"\n✓ Probabilidades guardadas: {probas_file}")
         
-        return {
-            'ganancia': float(ganancia_maxima),
-            'n_envios': int(idx_max + 1)
+        # Estrategia 1: Top 11,000
+        logger.info(f"\n{'='*70}")
+        logger.info(f"ESTRATEGIA 1: TOP 11,000 CLIENTES")
+        logger.info(f"{'='*70}")
+        
+        clientes_top11k, umbral_top11k = self.select_clients_fixed_threshold(
+            ensemble_proba, numero_de_cliente, n_envios=11000
+        )
+        
+        gain_est_top11k = self.estimate_expected_gain(
+            ensemble_proba, clientes_top11k, numero_de_cliente,
+            ganancia_acierto, costo_estimulo
+        )
+        
+        submission_top11k = self.save_submission(
+            clientes_top11k, "submission_top11000.csv"
+        )
+        
+        # Estrategia 2: Umbral de probabilidad
+        logger.info(f"\n{'='*70}")
+        logger.info(f"ESTRATEGIA 2: UMBRAL DE PROBABILIDAD")
+        logger.info(f"{'='*70}")
+        
+        clientes_umbral, umbral_prob, n_envios_umbral = self.select_clients_probability_threshold(
+            ensemble_proba, numero_de_cliente, ganancia_acierto, costo_estimulo
+        )
+        
+        gain_est_umbral = self.estimate_expected_gain(
+            ensemble_proba, clientes_umbral, numero_de_cliente,
+            ganancia_acierto, costo_estimulo
+        )
+        
+        submission_umbral = self.save_submission(
+            clientes_umbral, "submission_probability_threshold.csv"
+        )
+        
+        # Comparación
+        logger.info(f"\n{'='*70}")
+        logger.info(f"COMPARACIÓN DE ESTRATEGIAS")
+        logger.info(f"{'='*70}")
+        
+        logger.info(f"\nEstrategia 1 (Top 11,000):")
+        logger.info(f"  Ganancia esperada: ${gain_est_top11k['ganancia_total_esperada']:,.0f}")
+        logger.info(f"  Envíos: {gain_est_top11k['n_envios']:,}")
+        
+        logger.info(f"\nEstrategia 2 (Umbral probabilidad):")
+        logger.info(f"  Ganancia esperada: ${gain_est_umbral['ganancia_total_esperada']:,.0f}")
+        logger.info(f"  Envíos: {gain_est_umbral['n_envios']:,}")
+        
+        # Mejor estrategia
+        if gain_est_top11k['ganancia_total_esperada'] > gain_est_umbral['ganancia_total_esperada']:
+            mejor = "Top 11,000"
+            archivo_mejor = submission_top11k
+            ganancia_mejor = gain_est_top11k['ganancia_total_esperada']
+        else:
+            mejor = "Umbral probabilidad"
+            archivo_mejor = submission_umbral
+            ganancia_mejor = gain_est_umbral['ganancia_total_esperada']
+        
+        logger.info(f"\n{'='*70}")
+        logger.info(f"RECOMENDACIÓN")
+        logger.info(f"{'='*70}")
+        logger.info(f"Mejor estrategia: {mejor}")
+        logger.info(f"Ganancia esperada: ${ganancia_mejor:,.0f}")
+        logger.info(f"Archivo: {archivo_mejor}")
+        
+        # Guardar resumen
+        import json
+        summary = {
+            'fecha_prediccion': str(pl.datetime('now')),
+            'n_studies': len(study_predictions),
+            'studies': list(study_predictions.keys()),
+            'total_clientes_202108': int(len(numero_de_cliente)),
+            'estrategia_1_top11000': {
+                'archivo': str(submission_top11k),
+                **{k: float(v) if isinstance(v, (int, float, np.number)) else v 
+                   for k, v in gain_est_top11k.items()}
+            },
+            'estrategia_2_umbral': {
+                'archivo': str(submission_umbral),
+                'umbral_probabilidad': float(umbral_prob),
+                **{k: float(v) if isinstance(v, (int, float, np.number)) else v 
+                   for k, v in gain_est_umbral.items()}
+            },
+            'recomendacion': {
+                'estrategia': mejor,
+                'archivo': str(archivo_mejor),
+                'ganancia_esperada': float(ganancia_mejor)
+            }
         }
+        
+        summary_file = self.final_output_dir / "prediction_summary.json"
+        with open(summary_file, 'w') as f:
+            json.dump(summary, f, indent=2)
+        
+        logger.info(f"\n✓ Resumen guardado: {summary_file}")
 
 
 if __name__ == "__main__":
     import sys
     
-    if len(sys.argv) > 1:
-        config_path = sys.argv[1]
-    else:
-        config_path = "ensemble_config.yaml"
+    if len(sys.argv) < 2:
+        print("Uso: python predict_final_competition.py <ensemble_config.yaml>")
+        sys.exit(1)
     
-    predictor = EnsemblePredictor(config_path)
-    results = predictor.predict_all()
+    config_path = sys.argv[1]
     
-    print("\n=== RESUMEN FINAL ===")
-    if len(results) > 0:
-        print(results.group_by('study_name').agg([
-            pl.count('semilla').alias('n_modelos'),
-            pl.mean('ganancia_test1').alias('ganancia_test1_mean'),
-            pl.mean('ganancia_test2').alias('ganancia_test2_mean')
-        ]))
+    predictor = CompetitionPredictor(config_path)
+    predictor.run_prediction()
