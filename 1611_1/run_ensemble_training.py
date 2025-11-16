@@ -1,5 +1,6 @@
 from ensemble_trainer import EnsembleTrainer
 import logging
+import polars as pl
 
 if __name__ == "__main__":
     trainer = EnsembleTrainer("ensemble_config.yaml")

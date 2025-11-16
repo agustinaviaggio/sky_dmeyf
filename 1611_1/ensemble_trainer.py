@@ -338,15 +338,17 @@ class EnsembleTrainer:
         all_results = []
         all_predictions_test1 = []
         all_predictions_test2 = []
-       
-        try:
-            for model_info in models_config:
-                study_name = model_info['study_name']
-                
-                logger.info(f"\n{'='*70}")
-                logger.info(f"MODELO: {study_name}")
-                logger.info(f"{'='*70}")
-                
+    
+        for model_info in models_config:
+            study_name = model_info['study_name']
+            
+            logger.info(f"\n{'='*70}")
+            logger.info(f"MODELO: {study_name}")
+            logger.info(f"{'='*70}")
+            
+            conn = None  # Inicializar conn
+            
+            try:
                 # 1. Cargar config del modelo
                 model_config = self.load_model_config(model_info['config_dir'])
                 
@@ -421,9 +423,9 @@ class EnsembleTrainer:
                         )
                         
                         logger.info(f"  TEST 1 - Ganancia: {pred_test1['ganancia']:,.0f}, "
-                                   f"Envíos: {pred_test1['n_envios']:,}")
+                                f"Envíos: {pred_test1['n_envios']:,}")
                         logger.info(f"  TEST 2 - Ganancia: {pred_test2['ganancia']:,.0f}, "
-                                   f"Envíos: {pred_test2['n_envios']:,}")
+                                f"Envíos: {pred_test2['n_envios']:,}")
                         
                         # Guardar predicciones
                         all_predictions_test1.append({
@@ -462,11 +464,25 @@ class EnsembleTrainer:
                         import traceback
                         traceback.print_exc()
                         continue
-                
-                # Limpiar tabla de este modelo
-                conn.execute(f"DROP TABLE IF EXISTS {table_name}")
             
-            # Guardar resumen
+            except Exception as e:
+                logger.error(f"Error en modelo {study_name}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                
+            finally:
+                # Cerrar conexión de este modelo si existe
+                if conn is not None:
+                    try:
+                        conn.execute(f"DROP TABLE IF EXISTS tabla_{study_name}")
+                        conn.close()
+                        logger.info(f"Conexión cerrada para {study_name}")
+                    except Exception as e:
+                        logger.warning(f"Error al cerrar conexión de {study_name}: {e}")
+                gc.collect()
+        
+        # Guardar resumen
+        if len(all_results) > 0:
             results_df = pl.DataFrame(all_results)
             results_csv = self.output_dir / "training_summary.csv"
             results_df.write_csv(results_csv)
@@ -487,9 +503,9 @@ class EnsembleTrainer:
             logger.info(f"{'='*70}")
             
             return results_df
-            
-        finally:
-            conn.close()
+        else:
+            logger.error("No se entrenó ningún modelo exitosamente")
+            return pl.DataFrame()
     
     def _save_predictions(self, predictions: List[dict], test_name: str):
         """Guarda predicciones en formato eficiente"""
