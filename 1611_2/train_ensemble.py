@@ -280,17 +280,34 @@ class EnsembleTrainer:
                 X, y, feature_cols = self.prepare_undersampled_data(
                     conn, table_name, model_config
                 )
-                
+
+                # 5.5. Filtrar semillas que ya tienen modelo entrenado
+                semillas_pendientes = []
+                for semilla in self.semillas:
+                    model_filename = f"{study_name}_seed{semilla}.pkl"
+                    model_path = self.models_dir / model_filename
+                    if model_path.exists():
+                        logger.info(f"  ✓ Modelo ya existe, saltando: {model_filename}")
+                    else:
+                        semillas_pendientes.append(semilla)
+
+                if len(semillas_pendientes) == 0:
+                    logger.info(f"  ✓ Todos los modelos de {study_name} ya están entrenados, saltando...")
+                    continue  # Saltar este modelo completamente
+
+                logger.info(f"  Semillas pendientes: {len(semillas_pendientes)}/{len(self.semillas)}")
+                # FIN DEL BLOQUE NUEVO
+
                 # 6. Entrenar TODAS las semillas en paralelo (batches de 6)
-                logger.info(f"\nEntrenando {len(self.semillas)} modelos en paralelo (6 workers)...")
-                
+                logger.info(f"\nEntrenando {len(semillas_pendientes)} modelos en paralelo (3 workers)...")
+
                 start_time = datetime.now()
-                
-                results = Parallel(n_jobs=6, verbose=10)(
+
+                results = Parallel(n_jobs=3, verbose=10)(  
                     delayed(self.train_single_seed)(
                         X, y, feature_cols, best_params, best_iteration, semilla, study_name
                     )
-                    for semilla in self.semillas
+                    for semilla in semillas_pendientes  
                 )
                 
                 end_time = datetime.now()
