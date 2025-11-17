@@ -77,11 +77,14 @@ class HistoricalPerformanceEvaluator:
         # Extraer info necesaria
         numero_de_cliente = data['numero_de_cliente']
         
-        # CORRECCIÓN: Buscar primero target_ternario, luego clase_ternaria
-        if 'target_ternario' in data.dtype.names:
+        # CORRECCIÓN: data es un dict, no un structured array
+        # Verificar qué columnas existen
+        available_cols = list(data.keys())
+        
+        if 'target_ternario' in available_cols:
             clase_real = data['target_ternario'].astype(int)
             logger.info(f"  Usando columna: target_ternario")
-        elif 'clase_ternaria' in data.dtype.names:
+        elif 'clase_ternaria' in available_cols:
             logger.info(f"  Usando columna: clase_ternaria")
             clase_real_raw = data['clase_ternaria']
             # Convertir clase_ternaria a binario (1 si es BAJA+2, 0 si no)
@@ -90,7 +93,7 @@ class HistoricalPerformanceEvaluator:
             else:
                 clase_real = clase_real_raw.astype(int)
         else:
-            raise ValueError(f"No se encontró columna de target (target_ternario o clase_ternaria)")
+            raise ValueError(f"No se encontró columna de target. Columnas disponibles: {available_cols[:10]}...")
         
         logger.info(f"  Total clientes: {len(numero_de_cliente):,}")
         logger.info(f"  Churns reales: {clase_real.sum():,} ({clase_real.mean()*100:.2f}%)")
