@@ -76,11 +76,21 @@ class HistoricalPerformanceEvaluator:
         
         # Extraer info necesaria
         numero_de_cliente = data['numero_de_cliente']
-        clase_real = data.get('clase_ternaria', np.zeros(len(numero_de_cliente)))
         
-        # Convertir clase_real a binario (1 si es BAJA+2, 0 si no)
-        if isinstance(clase_real[0], (bytes, str)):
-            clase_real = np.array([1 if c in [b'BAJA+2', 'BAJA+2'] else 0 for c in clase_real])
+        # CORRECCIÓN: Buscar primero target_ternario, luego clase_ternaria
+        if 'target_ternario' in data.dtype.names:
+            clase_real = data['target_ternario'].astype(int)
+            logger.info(f"  Usando columna: target_ternario")
+        elif 'clase_ternaria' in data.dtype.names:
+            logger.info(f"  Usando columna: clase_ternaria")
+            clase_real_raw = data['clase_ternaria']
+            # Convertir clase_ternaria a binario (1 si es BAJA+2, 0 si no)
+            if isinstance(clase_real_raw[0], (bytes, str)):
+                clase_real = np.array([1 if c in [b'BAJA+2', 'BAJA+2'] else 0 for c in clase_real_raw])
+            else:
+                clase_real = clase_real_raw.astype(int)
+        else:
+            raise ValueError(f"No se encontró columna de target (target_ternario o clase_ternaria)")
         
         logger.info(f"  Total clientes: {len(numero_de_cliente):,}")
         logger.info(f"  Churns reales: {clase_real.sum():,} ({clase_real.mean()*100:.2f}%)")
@@ -399,6 +409,8 @@ class HistoricalPerformanceEvaluator:
                 results[period] = self.evaluate_month(period)
             except Exception as e:
                 logger.error(f"Error evaluando {period}: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
         # Resumen comparativo
