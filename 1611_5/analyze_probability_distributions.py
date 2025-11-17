@@ -1,9 +1,8 @@
 # analyze_probability_distributions.py
 import polars as pl
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 from pathlib import Path
+import json
 
 class ProbabilityDistributionAnalyzer:
     def __init__(self, ensemble_dirs: dict):
@@ -12,9 +11,6 @@ class ProbabilityDistributionAnalyzer:
         
         Args:
             ensemble_dirs: Dict con {period: ensemble_dir}
-                          Ej: {'202105': '~/buckets/b1/ensemble_final_1', 
-                               '202106': '~/buckets/b1/ensemble_final_1',
-                               '202108': '~/buckets/b1/ensemble_final_2'}
         """
         self.ensemble_dirs = {k: Path(v).expanduser() for k, v in ensemble_dirs.items()}
         
@@ -38,7 +34,7 @@ class ProbabilityDistributionAnalyzer:
         return pl.read_parquet(file_path)
     
     def calculate_statistics(self, df: pl.DataFrame, period: str) -> dict:
-        """Calcula estadísticas descriptivas"""
+        """Calcula estadísticas descriptivas completas"""
         proba = df['probabilidad_ensemble'].to_numpy()
         
         stats = {
@@ -49,6 +45,9 @@ class ProbabilityDistributionAnalyzer:
             'min': float(np.min(proba)),
             'max': float(np.max(proba)),
             'median': float(np.median(proba)),
+            'q01': float(np.percentile(proba, 1)),
+            'q05': float(np.percentile(proba, 5)),
+            'q10': float(np.percentile(proba, 10)),
             'q25': float(np.percentile(proba, 25)),
             'q75': float(np.percentile(proba, 75)),
             'q90': float(np.percentile(proba, 90)),
@@ -56,223 +55,205 @@ class ProbabilityDistributionAnalyzer:
             'q99': float(np.percentile(proba, 99)),
         }
         
+        # Top-N thresholds
+        for n in [1000, 5000, 11000, 15000, 20000]:
+            if n <= len(proba):
+                proba_sorted = np.sort(proba)[::-1]
+                stats[f'threshold_top{n}'] = float(proba_sorted[n-1])
+        
         # Si tiene clase_real, agregar stats por clase
         if 'clase_real' in df.columns:
-            proba_churners = df.filter(pl.col('clase_real') == 1)['probabilidad_ensemble'].to_numpy()
-            proba_no_churners = df.filter(pl.col('clase_real') == 0)['probabilidad_ensemble'].to_numpy()
+            churners = df.filter(pl.col('clase_real') == 1)
+            no_churners = df.filter(pl.col('clase_real') == 0)
+            
+            proba_churners = churners['probabilidad_ensemble'].to_numpy()
+            proba_no_churners = no_churners['probabilidad_ensemble'].to_numpy()
             
             stats['n_churners'] = len(proba_churners)
+            stats['n_no_churners'] = len(proba_no_churners)
             stats['churn_rate'] = len(proba_churners) / len(proba)
+            
+            # Stats de churners
             stats['mean_churners'] = float(np.mean(proba_churners)) if len(proba_churners) > 0 else None
-            stats['mean_no_churners'] = float(np.mean(proba_no_churners))
-            stats['median_churners'] = float(np.median(proba_churners)) if len(proba_churners) > 0 else None
-            stats['median_no_churners'] = float(np.median(proba_no_churners))
             stats['std_churners'] = float(np.std(proba_churners)) if len(proba_churners) > 0 else None
+            stats['median_churners'] = float(np.median(proba_churners)) if len(proba_churners) > 0 else None
+            stats['q25_churners'] = float(np.percentile(proba_churners, 25)) if len(proba_churners) > 0 else None
+            stats['q75_churners'] = float(np.percentile(proba_churners, 75)) if len(proba_churners) > 0 else None
+            
+            # Stats de no-churners
+            stats['mean_no_churners'] = float(np.mean(proba_no_churners))
             stats['std_no_churners'] = float(np.std(proba_no_churners))
-        
-        return stats
-    
-    def plot_distributions(self, dfs: dict, output_file: str = "probability_distributions.png"):
-        """
-        Plotea distribuciones de probabilidades para múltiples períodos.
-        
-        Args:
-            dfs: Dict con {period: dataframe}
-        """
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-        fig.suptitle('Distribuciones de Probabilidades de Churn por Mes', fontsize=16, y=0.995)
-        
-        colors = {'202105': '#1f77b4', '202106': '#ff7f0e', '202108': '#2ca02c'}
-        
-        # 1. Histogramas superpuestos
-        ax = axes[0, 0]
-        for period, df in dfs.items():
-            proba = df['probabilidad_ensemble'].to_numpy()
-            ax.hist(proba, bins=100, alpha=0.5, label=period, color=colors.get(period, 'gray'), density=True)
-        ax.set_xlabel('Probabilidad')
-        ax.set_ylabel('Densidad')
-        ax.set_title('Distribución General de Probabilidades')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        
-        # 2. Box plots comparativos
-        ax = axes[0, 1]
-        box_data = []
-        box_labels = []
-        for period in sorted(dfs.keys()):
-            box_data.append(dfs[period]['probabilidad_ensemble'].to_numpy())
-            box_labels.append(period)
-        
-        bp = ax.boxplot(box_data, labels=box_labels, patch_artist=True)
-        for patch, period in zip(bp['boxes'], box_labels):
-            patch.set_facecolor(colors.get(period, 'gray'))
-        ax.set_ylabel('Probabilidad')
-        ax.set_title('Distribución por Percentiles')
-        ax.grid(True, alpha=0.3)
-        
-        # 3. CDFs (Cumulative Distribution Functions)
-        ax = axes[1, 0]
-        for period in sorted(dfs.keys()):
-            proba = np.sort(dfs[period]['probabilidad_ensemble'].to_numpy())
-            cdf = np.arange(1, len(proba) + 1) / len(proba)
-            ax.plot(proba, cdf, label=period, color=colors.get(period, 'gray'), linewidth=2)
-        ax.set_xlabel('Probabilidad')
-        ax.set_ylabel('Proporción acumulada')
-        ax.set_title('Función de Distribución Acumulada (CDF)')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        
-        # 4. Top percentiles (zoom en colas superiores)
-        ax = axes[1, 1]
-        for period in sorted(dfs.keys()):
-            proba = dfs[period]['probabilidad_ensemble'].to_numpy()
-            percentiles = np.arange(90, 100.1, 0.1)
-            values = [np.percentile(proba, p) for p in percentiles]
-            ax.plot(percentiles, values, label=period, color=colors.get(period, 'gray'), linewidth=2)
-        ax.set_xlabel('Percentil')
-        ax.set_ylabel('Probabilidad')
-        ax.set_title('Distribución en Top 10% (percentiles 90-100)')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        output_path = self.analysis_dir / output_file
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"✓ Gráfico guardado: {output_path}")
-        plt.close()
-    
-    def plot_churners_vs_no_churners(self, dfs: dict, output_file: str = "churners_comparison.png"):
-        """
-        Compara distribuciones entre churners y no-churners para mayo y junio.
-        """
-        # Filtrar solo meses con clase_real
-        dfs_with_labels = {p: df for p, df in dfs.items() if 'clase_real' in df.columns}
-        
-        if not dfs_with_labels:
-            print("⚠️  No hay datos con clase_real para comparar")
-            return
-        
-        n_periods = len(dfs_with_labels)
-        fig, axes = plt.subplots(n_periods, 2, figsize=(14, 5*n_periods))
-        
-        if n_periods == 1:
-            axes = axes.reshape(1, -1)
-        
-        for idx, period in enumerate(sorted(dfs_with_labels.keys())):
-            df = dfs_with_labels[period]
-            churners = df.filter(pl.col('clase_real') == 1)['probabilidad_ensemble'].to_numpy()
-            no_churners = df.filter(pl.col('clase_real') == 0)['probabilidad_ensemble'].to_numpy()
+            stats['median_no_churners'] = float(np.median(proba_no_churners))
+            stats['q25_no_churners'] = float(np.percentile(proba_no_churners, 25))
+            stats['q75_no_churners'] = float(np.percentile(proba_no_churners, 75))
             
-            # Histogramas
-            ax = axes[idx, 0]
-            ax.hist(churners, bins=50, alpha=0.6, label=f'Churners (n={len(churners)})', 
-                   color='red', density=True)
-            ax.hist(no_churners, bins=50, alpha=0.6, label=f'No Churners (n={len(no_churners)})', 
-                   color='blue', density=True)
-            ax.set_xlabel('Probabilidad')
-            ax.set_ylabel('Densidad')
-            ax.set_title(f'{period}: Distribución por Clase Real')
-            ax.legend()
-            ax.grid(True, alpha=0.3)
+            # Ratios
+            if stats['mean_no_churners'] > 0:
+                stats['mean_ratio'] = stats['mean_churners'] / stats['mean_no_churners']
+                stats['median_ratio'] = stats['median_churners'] / stats['median_no_churners']
             
-            # Box plots
-            ax = axes[idx, 1]
-            bp = ax.boxplot([churners, no_churners], 
-                           labels=['Churners', 'No Churners'],
-                           patch_artist=True)
-            bp['boxes'][0].set_facecolor('red')
-            bp['boxes'][1].set_facecolor('blue')
-            ax.set_ylabel('Probabilidad')
-            ax.set_title(f'{period}: Comparación por Percentiles')
-            ax.grid(True, alpha=0.3)
-            
-            # Agregar estadísticas
-            stats_text = f"Media Churners: {np.mean(churners):.4f}\n"
-            stats_text += f"Media No-Churners: {np.mean(no_churners):.4f}\n"
-            stats_text += f"Ratio: {np.mean(churners) / np.mean(no_churners):.2f}x"
-            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, 
-                   verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-        
-        plt.tight_layout()
-        output_path = self.analysis_dir / output_file
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"✓ Gráfico guardado: {output_path}")
-        plt.close()
-    
-    def plot_top_n_analysis(self, dfs: dict, n_values: list = None, 
-                           output_file: str = "top_n_analysis.png"):
-        """
-        Analiza características de los top-N clientes por probabilidad.
-        """
-        if n_values is None:
-            n_values = [1000, 5000, 11000, 15000, 20000]
-        
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-        
-        colors = {'202105': '#1f77b4', '202106': '#ff7f0e', '202108': '#2ca02c'}
-        
-        # 1. Probabilidad mínima en top-N
-        ax = axes[0]
-        for period in sorted(dfs.keys()):
-            proba_sorted = np.sort(dfs[period]['probabilidad_ensemble'].to_numpy())[::-1]
-            min_probas = [proba_sorted[n-1] if n <= len(proba_sorted) else np.nan for n in n_values]
-            ax.plot(n_values, min_probas, marker='o', label=period, 
-                   color=colors.get(period, 'gray'), linewidth=2)
-        
-        ax.axvline(x=11000, color='red', linestyle='--', alpha=0.5, label='Límite competencia (11k)')
-        ax.set_xlabel('Número de envíos (Top-N)')
-        ax.set_ylabel('Probabilidad mínima en Top-N')
-        ax.set_title('Umbral de Probabilidad vs Cantidad de Envíos')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        
-        # 2. Recall esperado en top-N (solo para mayo y junio)
-        ax = axes[1]
-        for period in sorted(dfs.keys()):
-            if 'clase_real' not in dfs[period].columns:
-                continue
-            
-            # Ordenar por probabilidad
-            df_sorted = dfs[period].sort('probabilidad_ensemble', descending=True)
+            # Recall en diferentes top-N
+            df_sorted = df.sort('probabilidad_ensemble', descending=True)
             clase_real = df_sorted['clase_real'].to_numpy()
             total_churners = clase_real.sum()
             
-            recalls = []
-            for n in n_values:
+            for n in [1000, 5000, 11000, 15000, 20000]:
                 if n <= len(clase_real):
                     churners_in_top_n = clase_real[:n].sum()
-                    recall = churners_in_top_n / total_churners if total_churners > 0 else 0
-                    recalls.append(recall)
-                else:
-                    recalls.append(np.nan)
-            
-            ax.plot(n_values, recalls, marker='o', label=period, 
-                   color=colors.get(period, 'gray'), linewidth=2)
+                    stats[f'recall_top{n}'] = float(churners_in_top_n / total_churners) if total_churners > 0 else 0
+                    stats[f'precision_top{n}'] = float(churners_in_top_n / n)
         
-        ax.axvline(x=11000, color='red', linestyle='--', alpha=0.5, label='Límite competencia (11k)')
-        ax.set_xlabel('Número de envíos (Top-N)')
-        ax.set_ylabel('Recall (% de churners detectados)')
-        ax.set_title('Cobertura de Churners vs Cantidad de Envíos')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        ax.set_ylim([0, 1])
-        
-        plt.tight_layout()
-        output_path = self.analysis_dir / output_file
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"✓ Gráfico guardado: {output_path}")
-        plt.close()
+        return stats
     
-    def generate_summary_table(self, stats_list: list) -> pl.DataFrame:
-        """Genera tabla resumen de estadísticas"""
-        df_stats = pl.DataFrame(stats_list)
-        return df_stats
+    def analyze_distribution_shifts(self, stats_list: list) -> dict:
+        """Analiza cambios en distribuciones entre períodos"""
+        if len(stats_list) < 2:
+            return {}
+        
+        shifts = {}
+        
+        # Comparar cada par consecutivo
+        for i in range(len(stats_list) - 1):
+            current = stats_list[i]
+            next_period = stats_list[i + 1]
+            
+            comparison_key = f"{current['period']}_vs_{next_period['period']}"
+            
+            shifts[comparison_key] = {
+                'delta_mean': next_period['mean'] - current['mean'],
+                'delta_median': next_period['median'] - current['median'],
+                'delta_std': next_period['std'] - current['std'],
+                'pct_change_mean': ((next_period['mean'] - current['mean']) / current['mean'] * 100) if current['mean'] > 0 else 0,
+            }
+            
+            # Si ambos tienen churners
+            if 'mean_churners' in current and 'mean_churners' in next_period:
+                if current['mean_churners'] and next_period['mean_churners']:
+                    shifts[comparison_key]['delta_mean_churners'] = next_period['mean_churners'] - current['mean_churners']
+                    shifts[comparison_key]['delta_churn_rate'] = next_period['churn_rate'] - current['churn_rate']
+        
+        return shifts
+    
+    def print_summary_table(self, stats_list: list):
+        """Imprime tabla resumen en consola"""
+        print(f"\n{'='*100}")
+        print(f"TABLA COMPARATIVA DE PROBABILIDADES")
+        print(f"{'='*100}\n")
+        
+        # Métricas básicas
+        print(f"{'Métrica':<25} {'202105':>15} {'202106':>15} {'202108':>15}")
+        print(f"{'-'*25} {'-'*15} {'-'*15} {'-'*15}")
+        
+        metrics = [
+            ('n_clientes', 'Total Clientes', ','),
+            ('mean', 'Media', '.4f'),
+            ('std', 'Desv. Estándar', '.4f'),
+            ('median', 'Mediana', '.4f'),
+            ('q25', 'Q25', '.4f'),
+            ('q75', 'Q75', '.4f'),
+            ('q90', 'Q90', '.4f'),
+            ('q95', 'Q95', '.4f'),
+            ('q99', 'Q99', '.4f'),
+        ]
+        
+        for key, label, fmt in metrics:
+            values = []
+            for stats in stats_list:
+                val = stats.get(key)
+                if val is not None:
+                    if fmt == ',':
+                        values.append(f"{int(val):,}")
+                    else:
+                        values.append(f"{val:{fmt}}")
+                else:
+                    values.append('-')
+            
+            print(f"{label:<25} {values[0]:>15} {values[1]:>15} {values[2]:>15}")
+        
+        # Si hay churners (mayo y junio)
+        if 'n_churners' in stats_list[0]:
+            print(f"\n{'='*100}")
+            print(f"ESTADÍSTICAS POR CLASE (Mayo y Junio)")
+            print(f"{'='*100}\n")
+            
+            print(f"{'Métrica':<25} {'202105':>15} {'202106':>15}")
+            print(f"{'-'*25} {'-'*15} {'-'*15}")
+            
+            churn_metrics = [
+                ('n_churners', 'Churners', ','),
+                ('churn_rate', 'Tasa de Churn (%)', '.2%'),
+                ('mean_churners', 'Media Churners', '.4f'),
+                ('mean_no_churners', 'Media No-Churners', '.4f'),
+                ('mean_ratio', 'Ratio Media', '.2f'),
+                ('median_churners', 'Mediana Churners', '.4f'),
+                ('median_no_churners', 'Mediana No-Churners', '.4f'),
+            ]
+            
+            for key, label, fmt in churn_metrics:
+                values = []
+                for stats in stats_list[:2]:  # Solo mayo y junio
+                    val = stats.get(key)
+                    if val is not None:
+                        if fmt == ',':
+                            values.append(f"{int(val):,}")
+                        elif fmt == '.2%':
+                            values.append(f"{val*100:.2f}%")
+                        else:
+                            values.append(f"{val:{fmt}}")
+                    else:
+                        values.append('-')
+                
+                print(f"{label:<25} {values[0]:>15} {values[1]:>15}")
+        
+        # Top-N thresholds
+        print(f"\n{'='*100}")
+        print(f"UMBRALES DE PROBABILIDAD POR TOP-N")
+        print(f"{'='*100}\n")
+        
+        print(f"{'Top-N':<15} {'202105':>15} {'202106':>15} {'202108':>15}")
+        print(f"{'-'*15} {'-'*15} {'-'*15} {'-'*15}")
+        
+        for n in [1000, 5000, 11000, 15000, 20000]:
+            key = f'threshold_top{n}'
+            values = []
+            for stats in stats_list:
+                val = stats.get(key)
+                if val is not None:
+                    values.append(f"{val:.6f}")
+                else:
+                    values.append('-')
+            
+            print(f"Top {n:,}".ljust(15) + f"{values[0]:>15} {values[1]:>15} {values[2]:>15}")
+        
+        # Recall y precision (solo mayo y junio)
+        if 'recall_top11000' in stats_list[0]:
+            print(f"\n{'='*100}")
+            print(f"RECALL Y PRECISION POR TOP-N (Mayo y Junio)")
+            print(f"{'='*100}\n")
+            
+            print(f"{'Top-N':<15} {'Mayo Recall':>15} {'Junio Recall':>15} {'Mayo Precision':>15} {'Junio Precision':>15}")
+            print(f"{'-'*15} {'-'*15} {'-'*15} {'-'*15} {'-'*15}")
+            
+            for n in [1000, 5000, 11000, 15000, 20000]:
+                recall_key = f'recall_top{n}'
+                precision_key = f'precision_top{n}'
+                
+                mayo_recall = stats_list[0].get(recall_key)
+                junio_recall = stats_list[1].get(recall_key)
+                mayo_prec = stats_list[0].get(precision_key)
+                junio_prec = stats_list[1].get(precision_key)
+                
+                print(f"Top {n:,}".ljust(15) + 
+                      f"{mayo_recall*100:>14.2f}%" + 
+                      f"{junio_recall*100:>14.2f}%" +
+                      f"{mayo_prec*100:>14.2f}%" +
+                      f"{junio_prec*100:>14.2f}%")
     
     def run_analysis(self):
         """Ejecuta análisis completo"""
-        print(f"\n{'='*70}")
+        print(f"\n{'='*100}")
         print(f"ANÁLISIS DE DISTRIBUCIONES DE PROBABILIDADES")
-        print(f"{'='*70}\n")
+        print(f"{'='*100}\n")
         
         # Cargar datos
         dfs = {}
@@ -292,7 +273,6 @@ class ProbabilityDistributionAnalyzer:
                 if 'n_churners' in stats:
                     print(f"    Churners: {stats['n_churners']:,} ({stats['churn_rate']*100:.2f}%)")
                 print(f"    Probabilidad media: {stats['mean']:.4f}")
-                print(f"    Percentil 99: {stats['q99']:.4f}\n")
                 
             except FileNotFoundError as e:
                 print(f"  ⚠️  {e}")
@@ -302,30 +282,34 @@ class ProbabilityDistributionAnalyzer:
             print("❌ No se encontraron datos para analizar")
             return
         
-        # Generar visualizaciones
-        print("\nGenerando visualizaciones...")
+        # Imprimir tabla resumen
+        self.print_summary_table(stats_list)
         
-        self.plot_distributions(dfs)
-        self.plot_churners_vs_no_churners(dfs)
-        self.plot_top_n_analysis(dfs)
+        # Analizar shifts
+        shifts = self.analyze_distribution_shifts(stats_list)
         
-        # Guardar tabla resumen
-        df_summary = self.generate_summary_table(stats_list)
-        summary_file = self.analysis_dir / "statistics_summary.parquet"
-        df_summary.write_parquet(summary_file)
+        if shifts:
+            print(f"\n{'='*100}")
+            print(f"CAMBIOS ENTRE PERÍODOS")
+            print(f"{'='*100}\n")
+            
+            for comparison, values in shifts.items():
+                print(f"\n{comparison}:")
+                for key, val in values.items():
+                    print(f"  {key}: {val:.4f}")
         
-        print(f"\n{'='*70}")
-        print(f"RESUMEN DE ESTADÍSTICAS")
-        print(f"{'='*70}\n")
-        print(df_summary)
+        # Guardar todo en archivos
+        summary_file = self.analysis_dir / "statistics_summary.json"
+        with open(summary_file, 'w') as f:
+            json.dump({
+                'statistics': stats_list,
+                'shifts': shifts
+            }, f, indent=2)
         
-        # Guardar también en CSV para facilitar lectura
-        csv_file = self.analysis_dir / "statistics_summary.csv"
-        df_summary.write_csv(csv_file)
-        print(f"\n✓ Resumen guardado en: {summary_file}")
-        print(f"✓ CSV guardado en: {csv_file}")
-        
-        print(f"\n✓ Análisis completado. Archivos en: {self.analysis_dir}")
+        print(f"\n{'='*100}")
+        print(f"✓ Análisis completado")
+        print(f"✓ Resultados guardados en: {summary_file}")
+        print(f"{'='*100}\n")
 
 
 if __name__ == "__main__":
