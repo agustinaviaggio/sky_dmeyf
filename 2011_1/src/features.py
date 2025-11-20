@@ -19,7 +19,7 @@ def create_sql_table_from_parquet_csv(conn: duckdb.DuckDBPyConnection, path: str
                 SELECT *
                 FROM read_parquet('{path}')
             """)
-        elif path.lower().endswith('.csv'):
+        elif path.lower().endswith('.csv') or path.lower().endswith('.csv.gz'):
             conn.execute(f"""
                 CREATE OR REPLACE TABLE {table_name} AS
                 SELECT *
