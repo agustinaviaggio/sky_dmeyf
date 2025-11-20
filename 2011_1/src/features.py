@@ -12,6 +12,15 @@ def create_sql_table_from_parquet_csv(conn: duckdb.DuckDBPyConnection, path: str
     logger.info(f"Cargando dataset desde {path}")
    
     try:
+        # Si es una ruta de GCS, crear secret con credenciales
+        if path.startswith('gs://'):
+            conn.execute("""
+                CREATE SECRET IF NOT EXISTS gcs_secret (
+                    TYPE GCS,
+                    PROVIDER credential_chain
+                )
+            """)
+        
         # Detectar el tipo de archivo por extensión
         if path.lower().endswith('.parquet'):
             conn.execute(f"""
@@ -38,22 +47,18 @@ def create_sql_table_from_parquet_csv(conn: duckdb.DuckDBPyConnection, path: str
         raise
 
 def create_new_month_data(path: str, conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
-    '''
-    Carga un CSV desde 'path' y agrega sus filas a una tabla DuckDB existente
-    (UNION), retornando el objeto de conexión actualizado.
-    
-    Parameters:
-    -----------
-    path : str
-        Ruta al archivo CSV con las nuevas filas
-    conn : duckdb.DuckDBPyConnection
-        Conexión a DuckDB
-    table_name : str
-        Nombre de la tabla existente a la que se agregarán filas
-    '''
     logger.info(f"Agregando filas desde {path} a tabla {table_name}")
     
     try:
+        # Asegurar secret de GCS si es necesario
+        if path.startswith('gs://'):
+            conn.execute("""
+                CREATE SECRET IF NOT EXISTS gcs_secret (
+                    TYPE GCS,
+                    PROVIDER credential_chain
+                )
+            """)
+        
         temp_table = f"{table_name}_temp"
         
         # Cargar el CSV en una tabla temporal
