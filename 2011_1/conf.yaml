@@ -5,7 +5,7 @@
 STUDY_NAME: "2011_1"
 
 configuracion:
-    DATA_PATH_ANT: "~/buckets/b1/datasets/competencia_02_crudo.csv.gz"
+    DATA_PATHn_ANT: "~/buckets/b1/datasets/competencia_02_crudo.csv.gz"
     DATA_PATH_FE: "~/buckets/b1/datasets/competencia_03_crudo.csv.gz"
     OUTPUT_PATH_FE: "~/buckets/b1/datasets/competencia_03_crudo.parquet"
     BUCKET_NAME: "~/buckets/b1/"
