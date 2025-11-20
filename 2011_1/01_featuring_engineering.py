@@ -34,10 +34,24 @@ def main():
     try:
         conn = duckdb.connect(database=':memory:')
         
-        # Agregar estas 3 líneas:
+        # Configurar acceso a GCS
+        from google.auth import default
+        from google.auth.transport.requests import Request
+        
+        credentials, project = default()
+        credentials.refresh(Request())
+        token = credentials.token
+        
         conn.execute("INSTALL httpfs;")
         conn.execute("LOAD httpfs;")
-        conn.execute("CREATE SECRET (TYPE GCS, PROVIDER credential_chain)")
+        conn.execute(f"""
+            CREATE SECRET (
+                TYPE GCS,
+                PROVIDER config,
+                BEARER_TOKEN '{token}'
+            )
+        """)
+        logger.info("Secret de GCS configurado exitosamente")
 
         # 1. Cargar datos y crear tabla sql
         conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_ANT, SQL_TABLE_NAME)
