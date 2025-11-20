@@ -33,13 +33,6 @@ logger.info(f"BUCKET_NAME: {BUCKET_NAME}")
 def main():
     try:
         conn = duckdb.connect(database=':memory:')
-        conn.execute("INSTALL httpfs;")
-        conn.execute("LOAD httpfs;")
-
-        conn.execute("SET s3_region='auto';")
-        conn.execute("SET s3_url_style='path';")
-        conn.execute("SET s3_use_ssl=1;")
-        conn.execute("SET s3_endpoint='storage.googleapis.com';")
 
         # 1. Cargar datos y crear tabla sql
         conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_ANT, SQL_TABLE_NAME)
