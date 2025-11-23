@@ -3,71 +3,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
-'''def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
-    logger.info(f"Cargando dataset desde {path}")
-    conn = duckdb.connect(database=':memory:')
-    try:        
-        conn.execute(f"""
-            CREATE OR REPLACE TABLE {table_name} AS
-            SELECT *
-            FROM read_csv_auto('{path}')
-        """)
-        return conn
-    
-    except Exception as e:
-        logger.error(f"Error al cargar el dataset: {e}")
-        conn.close()
-        raise'''
-
-'''def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
-    
-    #Carga un CSV desde 'path' en una tabla DuckDB en memoria y retorna 
-    #el objeto de conexión para interactuar con esa tabla.
-    
-    logger.info(f"Cargando dataset desde {path}")
-    conn = duckdb.connect(database=':memory:')
-    try:        
-        conn.execute(f"""
-            CREATE OR REPLACE TABLE {table_name} AS
-            SELECT *
-            FROM read_csv_auto('{path}', auto_type_candidates=['VARCHAR', 'FLOAT', 'INTEGER'])
-        """)
-        return conn
-    
-    except Exception as e:
-        logger.error(f"Error al cargar el dataset: {e}")
-        conn.close()
-        raise'''
-
-def create_sql_table(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
-    '''
-    Carga un CSV desde 'path' en una tabla DuckDB en memoria y retorna 
-    el objeto de conexión para interactuar con esa tabla.
-    '''
-    logger.info(f"Cargando dataset desde {path}")
-    conn = duckdb.connect(database=':memory:')
-    try:        
-        conn.execute(f"""
-            CREATE OR REPLACE TABLE {table_name} AS
-            SELECT *
-            FROM read_csv_auto('{path}', auto_type_candidates=['VARCHAR', 'FLOAT', 'INTEGER'])
-        """)
-        return conn
-    
-    except Exception as e:
-        logger.error(f"Error al cargar el dataset: {e}")
-        conn.close()
-        raise
-
-def create_sql_table_from_parquet(path: str, table_name: str) -> duckdb.DuckDBPyConnection:
+def create_sql_table_from_parquet_csv(conn: duckdb.DuckDBPyConnection, path: str, table_name: str) -> duckdb.DuckDBPyConnection:
     '''
     Carga un CSV o Parquet desde 'path' en una tabla DuckDB en memoria y retorna 
     el objeto de conexión para interactuar con esa tabla.
     '''
     logger.info(f"Cargando dataset desde {path}")
-    conn = duckdb.connect(database=':memory:')
-    
+   
     try:
         # Detectar el tipo de archivo por extensión
         if path.lower().endswith('.parquet'):
@@ -76,16 +18,23 @@ def create_sql_table_from_parquet(path: str, table_name: str) -> duckdb.DuckDBPy
                 SELECT *
                 FROM read_parquet('{path}')
             """)
-        elif path.lower().endswith('.csv'):
+        elif path.lower().endswith('.csv') or path.lower().endswith('.csv.gz'):
             conn.execute(f"""
                 CREATE OR REPLACE TABLE {table_name} AS
                 SELECT *
-                FROM read_csv_auto('{path}', all_varchar=FALSE)
+                FROM read_csv_auto('{path}', auto_type_candidates=['VARCHAR', 'FLOAT', 'INTEGER'])
             """)
         else:
             raise ValueError(f"Formato de archivo no soportado: {path}")
         
+        gc.collect()
+        
         return conn
+    
+    except Exception as e:
+        logger.error(f"Error al cargar el dataset: {e}")
+        conn.close()
+        raise
     
     except Exception as e:
         logger.error(f"Error al cargar el dataset: {e}")
