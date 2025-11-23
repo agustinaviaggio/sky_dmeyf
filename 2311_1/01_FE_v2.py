@@ -157,7 +157,7 @@ def main():
                 OR name LIKE '%lag_2'
                 OR name LIKE '%delta_1'
                 OR name LIKE '%delta_2'
-                OR name LIKE '%max_3'            
+                OR name LIKE '%max_3m'            
         """
         
         cols_lag_delta_max = conn.execute(sql_get_cols_lag_delta_max).fetchall()
@@ -174,8 +174,8 @@ def main():
                 OR name LIKE '%lag_2'
                 OR name LIKE '%delta_1'
                 OR name LIKE '%delta_2'
-                OR name LIKE '%max_3'  
-                OR name LIKE '%min_3'           
+                OR name LIKE '%max_3m'  
+                OR name LIKE '%min_3m'           
         """
         
         cols_lag_delta_max_min = conn.execute(sql_get_cols_lag_delta_max_min).fetchall()
