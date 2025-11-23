@@ -6,24 +6,28 @@ import os
 logger = logging.getLogger(__name__)
 
 def setup_duckdb_connection():
-    """Configura conexión DuckDB optimizada"""
+    """Configura conexión DuckDB en memoria con temp en /dev/shm"""
     
-    # Usar /tmp en lugar de /dev/shm
-    temp_dir = '/tmp/duckdb_temp_' + os.environ.get('USER', 'default')
+    # Crear directorio temporal en RAM (ahora tienes 48GB disponibles)
+    temp_dir = '/dev/shm/duckdb_temp'
     os.makedirs(temp_dir, exist_ok=True)
     
     conn = duckdb.connect(database=':memory:')
     
+    # NUEVA CONFIGURACIÓN: Aprovechar los 94GB de RAM
     conn.execute(f"SET temp_directory='{temp_dir}'")
-    conn.execute("SET memory_limit='18GB'")
-    conn.execute("SET max_memory='18GB'") 
-    conn.execute("SET threads=4")
+    conn.execute("SET memory_limit='60GB'")  # Aumentado de 14GB a 60GB
+    conn.execute("SET max_memory='60GB'")
+    conn.execute("SET max_temp_directory_size='45GB'")  # Usar hasta 45GB de /dev/shm
+    conn.execute("SET threads=12")  # Aumentado de 3 a 16 (ajusta según tus cores)
     conn.execute("SET preserve_insertion_order=false")
     
     logger.info(f"DuckDB configurado:")
+    logger.info(f"  - database: :memory:")
     logger.info(f"  - temp_directory: {temp_dir}")
-    logger.info(f"  - memory_limit: 18GB")
-    logger.info(f"  - threads: 4")
+    logger.info(f"  - memory_limit: 60GB")
+    logger.info(f"  - max_temp_directory_size: 45GB")
+    logger.info(f"  - threads: 12")
     
     return conn, temp_dir
 
