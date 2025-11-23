@@ -779,258 +779,147 @@ def save_sql_table_to_csv(conn: duckdb.DuckDBPyConnection, table_name: str, path
     COPY {table_name} TO '{path}' (FORMAT CSV, HEADER TRUE)
     """)
     
-def create_max_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], month_window: int = 1) -> duckdb.DuckDBPyConnection:
-    """
-    Genera variables de valores máximos por ventana temporal para los atributos especificados y reemplaza la tabla.
-    Optimizado usando tabla temporal para mejor performance.
-  
-    Parameters:
-    -----------
-    conn : duckdb.DuckDBPyConnection
-        Conexión a la tabla DuckDB con los datos.
-    excluir_columnas : list
-        Lista de atributos a excluir para los cuales generar máximos.
-    month_window: int, default=1
-        Cantidad de meses de la ventana temporal.
-  
-    Returns:
-    --------
-    duckdb.DuckDBPyConnection
-       Conexión a la tabla DuckDB con los datos con las variables de máximos agregadas.
-    """
-
-    logger.info(f"Realizando feature engineering con valores máximos con {month_window} meses de ventana temporal para todos los atributos con excepción de las variables con tipo de dato INTEGER o VARCHAR y los {len(excluir_columnas)} atributos excluídos explícitamente")
-
-    sql_get_cols = f"""
-        SELECT 
-            name 
-        FROM 
-            pragma_table_info('{table_name}')
-        WHERE 
-            type NOT IN ('VARCHAR')
-    """
+def create_max_attributes(conn, table_name, excluir_columnas, month_window=3):
+    """Versión optimizada para MAX"""
+    import logging
+    logger = logging.getLogger(__name__)
     
-    cols_numericas_list = conn.execute(sql_get_cols).fetchall()
-    cols_numericas = [c[0] for c in cols_numericas_list if c[0] not in excluir_columnas]
-
-    logger.info(f"Se generarán máximos con ventana temporal para {len(cols_numericas)} columnas.")
-
-    if not cols_numericas:
-        logger.warning("No se encontraron columnas numéricas válidas para generar máximos. Devolviendo la conexión sin cambios.")
+    columnas_query = f"""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = '{table_name}' 
+        AND data_type IN ('INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT', 'DECIMAL', 'HUGEINT')
+        AND column_name NOT IN ({','.join([f"'{col}'" for col in excluir_columnas])})
+    """
+    columnas_numericas = [row[0] for row in conn.execute(columnas_query).fetchall()]
+    
+    if not columnas_numericas:
         return conn
     
-    # Generar expresiones SQL para las nuevas columnas
-    new_cols_sql = []
-    for attr in cols_numericas:
-        new_cols_sql.append(f"max({attr}) OVER w AS {attr}_max_{month_window}")
+    logger.info(f"Creando atributos MAX para {len(columnas_numericas)} columnas")
     
-    new_cols_str = ", ".join(new_cols_sql)
+    for idx, col in enumerate(columnas_numericas, 1):
+        logger.info(f"  [{idx}/{len(columnas_numericas)}] MAX: {col}")
+        
+        new_col = f"{col}_max_{month_window}m"
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {new_col} DOUBLE")
+        
+        sql_update = f"""
+            UPDATE {table_name} t
+            SET {new_col} = (
+                SELECT MAX({col})
+                FROM {table_name} t2
+                WHERE t2.numero_de_cliente = t.numero_de_cliente
+                AND t2.foto_mes < t.foto_mes
+                AND t2.foto_mes >= t.foto_mes - {month_window}
+            )
+        """
+        conn.execute(sql_update)
+        
+        if idx % 5 == 0:
+            conn.execute("CHECKPOINT")
     
-    # Paso 1: Crear tabla temporal solo con keys y las nuevas features
-    logger.info("Creando tabla temporal con features de máximos...")
-    sql_temp = f"""
-        CREATE TEMP TABLE IF NOT EXISTS temp_max AS
-        SELECT 
-            numero_de_cliente,
-            foto_mes,
-            {new_cols_str}
-        FROM {table_name} 
-        WINDOW w AS (
-            PARTITION BY numero_de_cliente
-            ORDER BY foto_mes
-            ROWS BETWEEN {month_window} PRECEDING AND CURRENT ROW
-        )
-    """
-    
-    conn.execute(sql_temp)
-    
-    # Paso 2: Join con la tabla original
-    logger.info("Realizando join con tabla original...")
-    sql_join = f"""
-        CREATE OR REPLACE TABLE {table_name} AS
-        SELECT t.*, temp_max.* EXCLUDE (numero_de_cliente, foto_mes)
-        FROM {table_name} t
-        JOIN temp_max 
-        ON t.numero_de_cliente = temp_max.numero_de_cliente 
-        AND t.foto_mes = temp_max.foto_mes
-    """
-    
-    conn.execute(sql_join)
-    
-    # Limpiar tabla temporal
-    conn.execute("DROP TABLE IF EXISTS temp_max")
-    logger.info("Features de máximos agregadas exitosamente.")
+    return conn
 
+def create_min_attributes(conn, table_name, excluir_columnas, month_window=3):
+    """Versión optimizada para MIN"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    columnas_query = f"""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = '{table_name}' 
+        AND data_type IN ('INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT', 'DECIMAL', 'HUGEINT')
+        AND column_name NOT IN ({','.join([f"'{col}'" for col in excluir_columnas])})
+    """
+    columnas_numericas = [row[0] for row in conn.execute(columnas_query).fetchall()]
+    
+    if not columnas_numericas:
+        return conn
+    
+    logger.info(f"Creando atributos MIN para {len(columnas_numericas)} columnas")
+    
+    for idx, col in enumerate(columnas_numericas, 1):
+        logger.info(f"  [{idx}/{len(columnas_numericas)}] MIN: {col}")
+        
+        new_col = f"{col}_min_{month_window}m"
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {new_col} DOUBLE")
+        
+        sql_update = f"""
+            UPDATE {table_name} t
+            SET {new_col} = (
+                SELECT MIN({col})
+                FROM {table_name} t2
+                WHERE t2.numero_de_cliente = t.numero_de_cliente
+                AND t2.foto_mes < t.foto_mes
+                AND t2.foto_mes >= t.foto_mes - {month_window}
+            )
+        """
+        conn.execute(sql_update)
+        
+        if idx % 5 == 0:
+            conn.execute("CHECKPOINT")
+    
     return conn
 
 
-def create_min_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], month_window: int = 1) -> duckdb.DuckDBPyConnection:
+def create_avg_attributes(conn, table_name, excluir_columnas, month_window=3):
     """
-    Genera variables de valores mínimos por ventana temporal para los atributos especificados y reemplaza la tabla.
-    Optimizado usando tabla temporal para mejor performance.
-  
-    Parameters:
-    -----------
-    conn : duckdb.DuckDBPyConnection
-        Conexión a la tabla DuckDB con los datos.
-    excluir_columnas : list
-        Lista de atributos a excluir para los cuales generar mínimos.
-    month_window: int, default=1
-        Cantidad de meses de la ventana temporal.
-  
-    Returns:
-    --------
-    duckdb.DuckDBPyConnection
-       Conexión a la tabla DuckDB con los datos con las variables de mínimos agregadas.
+    Versión ultra-conservadora que minimiza uso de memoria.
+    Procesa cada columna con subconsultas correlacionadas en lugar de window functions.
     """
-
-    logger.info(f"Realizando feature engineering con valores mínimos con {month_window} meses de ventana temporal para todos los atributos con excepción de las variables con tipo de dato INTEGER o VARCHAR y los {len(excluir_columnas)} atributos excluídos explícitamente")
-
-    sql_get_cols = f"""
-        SELECT 
-            name 
-        FROM 
-            pragma_table_info('{table_name}')
-        WHERE 
-            type NOT IN ('VARCHAR')
-    """
+    import logging
+    logger = logging.getLogger(__name__)
     
-    cols_numericas_list = conn.execute(sql_get_cols).fetchall()
-    cols_numericas = [c[0] for c in cols_numericas_list if c[0] not in excluir_columnas]
-
-    logger.info(f"Se generarán mínimos con ventana temporal para {len(cols_numericas)} columnas.")
-
-    if not cols_numericas:
-        logger.warning("No se encontraron columnas numéricas válidas para generar mínimos. Devolviendo la conexión sin cambios.")
+    # Obtener columnas numéricas
+    columnas_query = f"""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = '{table_name}' 
+        AND data_type IN ('INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT', 'DECIMAL', 'HUGEINT')
+        AND column_name NOT IN ({','.join([f"'{col}'" for col in excluir_columnas])})
+    """
+    columnas_numericas = [row[0] for row in conn.execute(columnas_query).fetchall()]
+    
+    if not columnas_numericas:
+        logger.info("No hay columnas numéricas para crear atributos AVG")
         return conn
     
-    # Generar expresiones SQL para las nuevas columnas
-    new_cols_sql = []
-    for attr in cols_numericas:
-        new_cols_sql.append(f"min({attr}) OVER w AS {attr}_min_{month_window}")
+    logger.info(f"Creando atributos AVG para {len(columnas_numericas)} columnas (método conservador)")
     
-    new_cols_str = ", ".join(new_cols_sql)
+    for idx, col in enumerate(columnas_numericas, 1):
+        logger.info(f"  [{idx}/{len(columnas_numericas)}] Procesando: {col}")
+        
+        try:
+            new_col = f"{col}_avg_{month_window}m"
+            
+            # Agregar columna vacía
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {new_col} DOUBLE")
+            
+            # Actualizar usando subconsulta correlacionada (más lento pero usa menos memoria)
+            sql_update = f"""
+                UPDATE {table_name} t
+                SET {new_col} = (
+                    SELECT AVG({col})
+                    FROM {table_name} t2
+                    WHERE t2.numero_de_cliente = t.numero_de_cliente
+                    AND t2.foto_mes < t.foto_mes
+                    AND t2.foto_mes >= t.foto_mes - {month_window}
+                )
+            """
+            conn.execute(sql_update)
+            
+            # Checkpoint cada 5 columnas
+            if idx % 5 == 0:
+                conn.execute("CHECKPOINT")
+                logger.info(f"    Checkpoint ejecutado")
+                
+        except Exception as e:
+            logger.error(f"Error procesando columna {col}: {e}")
+            raise
     
-    # Paso 1: Crear tabla temporal solo con keys y las nuevas features
-    logger.info("Creando tabla temporal con features de mínimos...")
-    sql_temp = f"""
-        CREATE TEMP TABLE IF NOT EXISTS temp_min AS
-        SELECT 
-            numero_de_cliente,
-            foto_mes,
-            {new_cols_str}
-        FROM {table_name} 
-        WINDOW w AS (
-            PARTITION BY numero_de_cliente
-            ORDER BY foto_mes
-            ROWS BETWEEN {month_window} PRECEDING AND CURRENT ROW
-        )
-    """
-    
-    conn.execute(sql_temp)
-    
-    # Paso 2: Join con la tabla original
-    logger.info("Realizando join con tabla original...")
-    sql_join = f"""
-        CREATE OR REPLACE TABLE {table_name} AS
-        SELECT t.*, temp_min.* EXCLUDE (numero_de_cliente, foto_mes)
-        FROM {table_name} t
-        JOIN temp_min 
-        ON t.numero_de_cliente = temp_min.numero_de_cliente 
-        AND t.foto_mes = temp_min.foto_mes
-    """
-    
-    conn.execute(sql_join)
-    
-    # Limpiar tabla temporal
-    conn.execute("DROP TABLE IF EXISTS temp_min")
-    logger.info("Features de mínimos agregadas exitosamente.")
-
-    return conn
-
-
-def create_avg_attributes(conn: duckdb.DuckDBPyConnection, table_name: str, excluir_columnas: list[str], month_window: int = 1) -> duckdb.DuckDBPyConnection:
-    """
-    Genera variables de valores promedios por ventana temporal para los atributos especificados y reemplaza la tabla.
-    Optimizado usando tabla temporal para mejor performance.
-  
-    Parameters:
-    -----------
-    conn : duckdb.DuckDBPyConnection
-        Conexión a la tabla DuckDB con los datos.
-    excluir_columnas : list
-        Lista de atributos a excluir para los cuales generar promedios.
-    month_window: int, default=1
-        Cantidad de meses de la ventana temporal.
-  
-    Returns:
-    --------
-    duckdb.DuckDBPyConnection
-       Conexión a la tabla DuckDB con los datos con las variables de promedios agregadas.
-    """
-
-    logger.info(f"Realizando feature engineering con valores promedios con {month_window} meses de ventana temporal para todos los atributos con excepción de las variables con tipo de dato INTEGER o VARCHAR y los {len(excluir_columnas)} atributos excluídos explícitamente")
-
-    sql_get_cols = f"""
-        SELECT 
-            name 
-        FROM 
-            pragma_table_info('{table_name}')
-        WHERE 
-            type NOT IN ('VARCHAR')
-    """
-    
-    cols_numericas_list = conn.execute(sql_get_cols).fetchall()
-    cols_numericas = [c[0] for c in cols_numericas_list if c[0] not in excluir_columnas]
-
-    logger.info(f"Se generarán promedios con ventana temporal para {len(cols_numericas)} columnas.")
-
-    if not cols_numericas:
-        logger.warning("No se encontraron columnas numéricas válidas para generar promedios. Devolviendo la conexión sin cambios.")
-        return conn
-    
-    # Generar expresiones SQL para las nuevas columnas
-    new_cols_sql = []
-    for attr in cols_numericas:
-        new_cols_sql.append(f"avg({attr}) OVER w AS {attr}_avg_{month_window}")
-    
-    new_cols_str = ", ".join(new_cols_sql)
-    
-    # Paso 1: Crear tabla temporal solo con keys y las nuevas features
-    logger.info("Creando tabla temporal con features de promedios...")
-    sql_temp = f"""
-        CREATE TEMP TABLE IF NOT EXISTS temp_avg AS
-        SELECT 
-            numero_de_cliente,
-            foto_mes,
-            {new_cols_str}
-        FROM {table_name} 
-        WINDOW w AS (
-            PARTITION BY numero_de_cliente
-            ORDER BY foto_mes
-            ROWS BETWEEN {month_window} PRECEDING AND CURRENT ROW
-        )
-    """
-    
-    conn.execute(sql_temp)
-    
-    # Paso 2: Join con la tabla original
-    logger.info("Realizando join con tabla original...")
-    sql_join = f"""
-        CREATE OR REPLACE TABLE {table_name} AS
-        SELECT t.*, temp_avg.* EXCLUDE (numero_de_cliente, foto_mes)
-        FROM {table_name} t
-        JOIN temp_avg 
-        ON t.numero_de_cliente = temp_avg.numero_de_cliente 
-        AND t.foto_mes = temp_avg.foto_mes
-    """
-    
-    conn.execute(sql_join)
-    
-    # Limpiar tabla temporal
-    conn.execute("DROP TABLE IF EXISTS temp_avg")
-    logger.info("Features de promedios agregadas exitosamente.")
-
+    logger.info(f"Atributos AVG creados exitosamente")
     return conn
 
 def save_sql_table_to_parquet(conn: duckdb.DuckDBPyConnection, table_name: str, path: str) -> None:
