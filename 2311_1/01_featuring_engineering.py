@@ -54,7 +54,7 @@ def main():
         """)
         logger.info("Secret de GCS configurado exitosamente")
         # 1. Cargar datos y crear tabla sql
-        conn = create_sql_table_from_parquet(DATA_PATH_FE, SQL_TABLE_NAME)
+        conn = create_sql_table_from_parquet_csv(DATA_PATH_FE, SQL_TABLE_NAME)
 
         conn = create_status_binary_attributes(conn, SQL_TABLE_NAME)
         cols_to_drop = ["master_status", "visa_status"]
