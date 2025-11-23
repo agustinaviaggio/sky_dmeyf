@@ -26,15 +26,39 @@ logger.info("Configuración cargada desde YAML")
 logger.info(f"STUDY_NAME: {STUDY_NAME}")
 logger.info(f"DATA_PATH_FE: {DATA_PATH_FE}")
 
+def cleanup_temp_dir(temp_dir):
+    """Limpia directorio temporal"""
+    try:
+        import shutil
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+            logger.info(f"Directorio temporal limpiado: {temp_dir}")
+    except Exception as e:
+        logger.warning(f"Error limpiando temp_dir: {e}")
+
 ### Main ###
 def main():
     """Pipeline principal con optimización usando configuración YAML."""
     logger.info("=== INICIANDO INGENIERIA DE ATRIBUTOS CON CONFIGURACIÓN YAML ===")
+    
     conn = None
+    temp_dir = None
+    
     try: 
         temp_dir = '/dev/shm/duckdb_temp'
         os.makedirs(temp_dir, exist_ok=True)
+        
         conn = duckdb.connect(database=':memory:')
+        
+        # CONFIGURAR DUCKDB PARA USAR temp_dir
+        conn.execute(f"SET temp_directory='{temp_dir}'")
+        conn.execute("SET memory_limit='60GB'")
+        conn.execute("SET max_memory='60GB'")
+        conn.execute("SET max_temp_directory_size='45GB'")
+        conn.execute("SET threads=12")
+        conn.execute("SET preserve_insertion_order=false")
+        
+        logger.info(f"DuckDB configurado: temp_dir={temp_dir}, memory=60GB, threads=12")
 
         # Configurar acceso a GCS
         from google.auth import default
@@ -67,43 +91,35 @@ def main():
 
         # 3. Crear atributos tipo fecha mayor y menor para las tarjetas de crédito
         column_pairs = [
-        ("Master_Finiciomora", "Visa_Finiciomora", "tc_finiciomora"),
-        ("Master_Fvencimiento", "Visa_Fvencimiento", "tc_fvencimiento"),
-        ("Master_fultimo_cierre", "Visa_fultimo_cierre", "tc_fultimocierre"),
-        ("Master_fechaalta", "Visa_fechaalta", "tc_fechaalta"),
+            ("Master_Finiciomora", "Visa_Finiciomora", "tc_finiciomora"),
+            ("Master_Fvencimiento", "Visa_Fvencimiento", "tc_fvencimiento"),
+            ("Master_fultimo_cierre", "Visa_fultimo_cierre", "tc_fultimocierre"),
+            ("Master_fechaalta", "Visa_fechaalta", "tc_fechaalta"),
         ]
         conn, cols_tc_fecha = create_latest_and_earliest_credit_card_attributes(conn, SQL_TABLE_NAME, column_pairs)
 
         # 4. Borrar columnas tipo fecha individuales de las tarjetas de crédito máster y visa
         cols_to_drop = [
-        "Master_Finiciomora", "Visa_Finiciomora",
-        "Master_Fvencimiento", "Visa_Fvencimiento",
-        "Master_fultimo_cierre", "Visa_fultimo_cierre",
-        "Master_fechaalta", "Visa_fechaalta"
+            "Master_Finiciomora", "Visa_Finiciomora",
+            "Master_Fvencimiento", "Visa_Fvencimiento",
+            "Master_fultimo_cierre", "Visa_fultimo_cierre",
+            "Master_fechaalta", "Visa_fechaalta"
         ]
         conn = drop_columns(conn, SQL_TABLE_NAME, cols_to_drop)
 
         # 5. Crear atributos tipo suma para las tarjetas de crédito
         sql_get_cols_visa = f"""
-            SELECT 
-                name 
-            FROM 
-                pragma_table_info('{SQL_TABLE_NAME}')
-            WHERE 
-                name ILIKE '%visa%'
+            SELECT name 
+            FROM pragma_table_info('{SQL_TABLE_NAME}')
+            WHERE name ILIKE '%visa%'
         """
-        
         cols_visa = conn.execute(sql_get_cols_visa).fetchall()
 
         sql_get_cols_master = f"""
-            SELECT 
-                name 
-            FROM 
-                pragma_table_info('{SQL_TABLE_NAME}')
-            WHERE 
-                name ILIKE '%master%'
+            SELECT name 
+            FROM pragma_table_info('{SQL_TABLE_NAME}')
+            WHERE name ILIKE '%master%'
         """
-
         cols_master = conn.execute(sql_get_cols_master).fetchall()
 
         cols_visa_str = [c[0] for c in cols_visa]
@@ -111,7 +127,7 @@ def main():
 
         conn = create_sum_credit_card_attributes(conn, SQL_TABLE_NAME, cols_visa_str, cols_master_str)
 
-        # 6. Borrar atributos individuales usandos para crear los atributos tipo suma para las tarjetas de crédito
+        # 6. Borrar atributos individuales usados para crear los atributos tipo suma
         conn = drop_columns(conn, SQL_TABLE_NAME, cols_visa_str+cols_master_str)
 
         # 7. Crear atributos tipo ratio entre pares de variables m_ y c_
@@ -119,54 +135,43 @@ def main():
 
         # 8. Crear atributos tipo lag
         excluir_columnas_lag = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_tc_fecha + low_cardinality_cols
-        conn = create_lag_attributes(conn, SQL_TABLE_NAME, excluir_columnas_lag, cant_lag = 2)
+        conn = create_lag_attributes(conn, SQL_TABLE_NAME, excluir_columnas_lag, cant_lag=2)
 
         # 9. Crear atributos tipo delta
         sql_get_cols_lag = f"""
             SELECT name 
             FROM pragma_table_info('{SQL_TABLE_NAME}')
-            WHERE
-                name LIKE '%lag_1'
-                OR name LIKE '%lag_2'
+            WHERE name LIKE '%lag_1' OR name LIKE '%lag_2'
         """
-        
         cols_lag = conn.execute(sql_get_cols_lag).fetchall()
         cols_lag_list = [c[0] for c in cols_lag]
         excluir_columnas_delta = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_list + cols_tc_fecha + low_cardinality_cols
-        conn = create_delta_attributes(conn, SQL_TABLE_NAME, excluir_columnas_delta, cant_delta = 2)
+        conn = create_delta_attributes(conn, SQL_TABLE_NAME, excluir_columnas_delta, cant_delta=2)
 
         # 10. Crear atributos tipo máximos ventana
         sql_get_cols_lag_delta = f"""
             SELECT name 
             FROM pragma_table_info('{SQL_TABLE_NAME}')
-            WHERE
-                name LIKE '%lag_1'
-                OR name LIKE '%lag_2'
-                OR name LIKE '%delta_1'
-                OR name LIKE '%delta_2'            
+            WHERE name LIKE '%lag_1' OR name LIKE '%lag_2'
+               OR name LIKE '%delta_1' OR name LIKE '%delta_2'
         """
-        
         cols_lag_delta = conn.execute(sql_get_cols_lag_delta).fetchall()
         cols_lag_delta_list = [c[0] for c in cols_lag_delta]
         excluir_columnas_max = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_list + cols_tc_fecha + low_cardinality_cols
-        conn = create_max_attributes(conn, SQL_TABLE_NAME, excluir_columnas_max, month_window = 3)
+        conn = create_max_attributes(conn, SQL_TABLE_NAME, excluir_columnas_max, month_window=3)
 
         # 11. Crear atributos tipo mínimos ventana
         sql_get_cols_lag_delta_max = f"""
             SELECT name 
             FROM pragma_table_info('{SQL_TABLE_NAME}')
-            WHERE
-                name LIKE '%lag_1'
-                OR name LIKE '%lag_2'
-                OR name LIKE '%delta_1'
-                OR name LIKE '%delta_2'
-                OR name LIKE '%max_3m'            
+            WHERE name LIKE '%lag_1' OR name LIKE '%lag_2'
+               OR name LIKE '%delta_1' OR name LIKE '%delta_2'
+               OR name LIKE '%max_3m'
         """
-        
         cols_lag_delta_max = conn.execute(sql_get_cols_lag_delta_max).fetchall()
         cols_lag_delta_max_list = [c[0] for c in cols_lag_delta_max]
         excluir_columnas_min = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_max_list + cols_tc_fecha + low_cardinality_cols
-        conn = create_min_attributes(conn, SQL_TABLE_NAME, excluir_columnas_min, month_window = 3)
+        conn = create_min_attributes(conn, SQL_TABLE_NAME, excluir_columnas_min, month_window=3)
 
         # 12. Crear atributos tipo promedio ventana
         sql_get_cols_lag_delta_max_min = f"""
@@ -181,11 +186,32 @@ def main():
         excluir_columnas_avg = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_max_min_list + cols_tc_fecha + low_cardinality_cols
         conn = create_avg_attributes(conn, SQL_TABLE_NAME, excluir_columnas_avg, month_window=3)
 
-        # *** NUEVO: GUARDAR ANTES DE TARGETS PARA LIBERAR MEMORIA ***
-        logger.info("PASO 12.5: Guardando features SIN targets y liberando memoria...")
+        logger.info("PASO 12.5: Guardando dataset sin targets...")
         output_sin_targets = OUTPUT_PATH_FE.replace('.parquet', '_sin_targets.parquet')
-        save_sql_table_to_parquet(conn, SQL_TABLE_NAME, output_sin_targets)
-        logger.info(f"Features guardados en: {output_sin_targets}")
+        
+        # Guardar SIN comprimir (usa menos memoria temporal)
+        try:
+            conn.execute(f"""
+                COPY {SQL_TABLE_NAME} 
+                TO '{output_sin_targets}' 
+                (FORMAT PARQUET, COMPRESSION UNCOMPRESSED, ROW_GROUP_SIZE 100000)
+            """)
+            logger.info(f"Dataset guardado exitosamente en: {output_sin_targets}")
+        except Exception as e:
+            logger.error(f"Error guardando dataset: {e}")
+            # Intentar con particiones por foto_mes
+            logger.info("Intentando guardar con particiones por foto_mes...")
+            
+            # Guardar particionado por foto_mes
+            base_path = output_sin_targets.replace('.parquet', '')
+            conn.execute(f"""
+                COPY {SQL_TABLE_NAME} 
+                TO '{base_path}' 
+                (FORMAT PARQUET, PARTITION_BY (foto_mes), COMPRESSION ZSTD)
+            """)
+            logger.info(f"Dataset guardado particionado en: {base_path}/foto_mes=*/")
+        
+        logger.info("=== FEATURE ENGINEERING COMPLETADO ===")
 
     except Exception as e:
         logger.error(f"Error durante la ejecución del pipeline: {e}")
