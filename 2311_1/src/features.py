@@ -1,6 +1,7 @@
 import duckdb
 import logging
 import gc
+import os
 
 logger = logging.getLogger(__name__)
 
