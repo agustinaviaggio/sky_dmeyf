@@ -3,6 +3,7 @@ from datetime import datetime
 import os
 import duckdb
 from src.config import *
+from src.features import *
 
 ### Configuración de logging ###
 os.makedirs("logs", exist_ok=True)
@@ -98,9 +99,7 @@ def main():
         """)
         logger.info("Secret de GCS configurado exitosamente")
         
-        # Importar funciones después de configurar logging
-        from src.features import *
-        
+       
         # 1. Cargar datos
         logger.info("PASO 1: Cargando datos...")
         conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_FE, SQL_TABLE_NAME)
