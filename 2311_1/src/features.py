@@ -15,17 +15,21 @@ def setup_duckdb_connection():
     # Conexión en memoria
     conn = duckdb.connect(database=':memory:')
     
-    # Configuración crítica para evitar "No space left on device"
+    # Configuración crítica - ORDEN IMPORTA
     conn.execute(f"SET temp_directory='{temp_dir}'")
-    conn.execute("SET memory_limit='24GB'")  # Usa 24GB de tus 32GB disponibles
-    conn.execute("SET max_memory='24GB'")
-    conn.execute("SET threads=8")  # Ajusta según tus cores
+    conn.execute("SET max_temp_directory_size='31GB'")  # CAMBIADO: usar SET
+    conn.execute("SET memory_limit='18GB'")  # Reducido
+    conn.execute("SET max_memory='18GB'")
+    conn.execute("SET threads=4")  # Reducido a 4
     conn.execute("SET preserve_insertion_order=false")
     
+    # Verificar que se aplicó
+    result = conn.execute("SELECT current_setting('max_temp_directory_size')").fetchone()
     logger.info(f"DuckDB configurado:")
     logger.info(f"  - temp_directory: {temp_dir}")
-    logger.info(f"  - memory_limit: 24GB")
-    logger.info(f"  - threads: 8")
+    logger.info(f"  - max_temp_directory_size: {result[0]}")
+    logger.info(f"  - memory_limit: 18GB")
+    logger.info(f"  - threads: 4")
     
     return conn, temp_dir
 
