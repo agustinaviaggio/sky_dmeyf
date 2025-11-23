@@ -4,6 +4,40 @@ import gc
 
 logger = logging.getLogger(__name__)
 
+def setup_duckdb_connection():
+    """Configura conexión DuckDB optimizada para usar RAM"""
+    
+    # Directorio temporal en RAM (tienes 32GB disponibles)
+    temp_dir = '/dev/shm/duckdb_temp'
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # Conexión en memoria
+    conn = duckdb.connect(database=':memory:')
+    
+    # Configuración crítica para evitar "No space left on device"
+    conn.execute(f"SET temp_directory='{temp_dir}'")
+    conn.execute("SET memory_limit='24GB'")  # Usa 24GB de tus 32GB disponibles
+    conn.execute("SET max_memory='24GB'")
+    conn.execute("SET threads=8")  # Ajusta según tus cores
+    conn.execute("SET preserve_insertion_order=false")
+    
+    logger.info(f"DuckDB configurado:")
+    logger.info(f"  - temp_directory: {temp_dir}")
+    logger.info(f"  - memory_limit: 24GB")
+    logger.info(f"  - threads: 8")
+    
+    return conn, temp_dir
+
+def cleanup_temp_dir(temp_dir):
+    """Limpia directorio temporal en RAM"""
+    try:
+        import shutil
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+            logger.info(f"Directorio temporal limpiado: {temp_dir}")
+    except Exception as e:
+        logger.warning(f"Error limpiando directorio temporal: {e}")
+
 def create_sql_table_from_parquet_csv(conn: duckdb.DuckDBPyConnection, path: str, table_name: str) -> duckdb.DuckDBPyConnection:
     '''
     Carga un CSV o Parquet desde 'path' en una tabla DuckDB en memoria y retorna 

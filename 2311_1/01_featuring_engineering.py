@@ -30,8 +30,12 @@ logger.info(f"DATA_PATH_FE: {DATA_PATH_FE}")
 def main():
     """Pipeline principal con optimización usando configuración YAML."""
     logger.info("=== INICIANDO INGENIERIA DE ATRIBUTOS CON CONFIGURACIÓN YAML ===")
+    temp_dir = None
+    conn = None
+    
     try:
-        conn = duckdb.connect(database=':memory:')
+        # Setup DuckDB con configuración optimizada
+        conn, temp_dir = setup_duckdb_connection()
         
         # Configurar acceso a GCS
         from google.auth import default
@@ -196,6 +200,9 @@ def main():
         if conn:
             conn.close()
             logger.info("Conexión a DuckDB cerrada.")
+        
+        if temp_dir:
+            cleanup_temp_dir(temp_dir)
 
 if __name__ == "__main__":
     main()
