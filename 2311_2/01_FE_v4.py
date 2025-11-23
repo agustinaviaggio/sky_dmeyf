@@ -67,6 +67,21 @@ def load_checkpoint(conn, table_name, checkpoint_path):
         logger.error(f"Error cargando checkpoint: {e}")
         return False
 
+def checkpoint_exists(conn, checkpoint_path):
+    """Verifica si existe el checkpoint usando DuckDB"""
+    try:
+        # Intentar leer solo 1 fila para verificar
+        result = conn.execute(f"""
+            SELECT COUNT(*) 
+            FROM read_parquet('{checkpoint_path}')
+            LIMIT 1
+        """).fetchone()
+        logger.info(f"Checkpoint encontrado: {checkpoint_path}")
+        return True
+    except Exception as e:
+        logger.info(f"Checkpoint no existe: {checkpoint_path}")
+        return False
+    
 ### Main ###
 def main():
     """Pipeline principal con optimización usando configuración YAML."""
@@ -116,7 +131,7 @@ def main():
         # ========================================================
         # VERIFICAR SI EXISTE CHECKPOINT
         # ========================================================
-        if os.path.exists(checkpoint_before_active.replace('gs://', '/gcs/')):
+        if checkpoint_exists(conn, checkpoint_before_active):
             logger.info("=== CHECKPOINT ENCONTRADO - SALTANDO PASOS ANTERIORES ===")
             load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_before_active)
             
