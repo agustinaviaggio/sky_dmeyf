@@ -30,8 +30,6 @@ logger.info(f"DATA_PATH_FE: {DATA_PATH_FE}")
 def main():
     """Pipeline principal con optimización usando configuración YAML."""
     logger.info("=== INICIANDO INGENIERIA DE ATRIBUTOS CON CONFIGURACIÓN YAML ===")
-
-    conn = None # Inicializamos la conexión a None
     try:
         conn = duckdb.connect(database=':memory:')
         
@@ -54,7 +52,7 @@ def main():
         """)
         logger.info("Secret de GCS configurado exitosamente")
         # 1. Cargar datos y crear tabla sql
-        conn = create_sql_table_from_parquet_csv(DATA_PATH_FE, SQL_TABLE_NAME)
+        conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_FE, SQL_TABLE_NAME)
 
         conn = create_status_binary_attributes(conn, SQL_TABLE_NAME)
         cols_to_drop = ["master_status", "visa_status"]
