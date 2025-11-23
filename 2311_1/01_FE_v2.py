@@ -169,25 +169,66 @@ def main():
         sql_get_cols_lag_delta_max_min = f"""
             SELECT name 
             FROM pragma_table_info('{SQL_TABLE_NAME}')
-            WHERE
-                name LIKE '%lag_1'
-                OR name LIKE '%lag_2'
-                OR name LIKE '%delta_1'
-                OR name LIKE '%delta_2'
-                OR name LIKE '%max_3m'  
-                OR name LIKE '%min_3m'           
+            WHERE name LIKE '%lag_1' OR name LIKE '%lag_2'
+               OR name LIKE '%delta_1' OR name LIKE '%delta_2'
+               OR name LIKE '%max_3m' OR name LIKE '%min_3m'
         """
-        
         cols_lag_delta_max_min = conn.execute(sql_get_cols_lag_delta_max_min).fetchall()
         cols_lag_delta_max_min_list = [c[0] for c in cols_lag_delta_max_min]
         excluir_columnas_avg = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_max_min_list + cols_tc_fecha + low_cardinality_cols
-        conn = create_avg_attributes(conn, SQL_TABLE_NAME, excluir_columnas_avg, month_window = 3)
+        conn = create_avg_attributes(conn, SQL_TABLE_NAME, excluir_columnas_avg, month_window=3)
 
-        # 13. generar targets para optimización y entrenamiento
+        # *** NUEVO: GUARDAR ANTES DE TARGETS PARA LIBERAR MEMORIA ***
+        logger.info("PASO 12.5: Guardando features SIN targets y liberando memoria...")
+        output_sin_targets = OUTPUT_PATH_FE.replace('.parquet', '_sin_targets.parquet')
+        save_sql_table_to_parquet(conn, SQL_TABLE_NAME, output_sin_targets)
+        logger.info(f"Features guardados en: {output_sin_targets}")
+        
+        # Liberar memoria cerrando conexión
+        conn.close()
+        logger.info("Conexión cerrada para liberar memoria")
+        
+        # Limpiar directorio temporal
+        if temp_dir:
+            cleanup_temp_dir(temp_dir)
+        
+        # REABRIR conexión limpia
+        logger.info("Reabriendo conexión para generar targets...")
+        conn, temp_dir = setup_duckdb_connection()
+        
+        # Reconfigurar GCS
+        from google.auth import default
+        from google.auth.transport.requests import Request
+        credentials, project = default()
+        credentials.refresh(Request())
+        token = credentials.token
+        conn.execute("INSTALL httpfs;")
+        conn.execute("LOAD httpfs;")
+        conn.execute(f"""
+            CREATE SECRET (
+                TYPE GCS,
+                PROVIDER config,
+                BEARER_TOKEN '{token}'
+            )
+        """)
+        
+        # Recargar datos desde GCS
+        logger.info(f"Recargando datos desde: {output_sin_targets}")
+        conn.execute(f"""
+            CREATE TABLE {SQL_TABLE_NAME} AS 
+            SELECT * FROM read_parquet('{output_sin_targets}')
+        """)
+        logger.info("Datos recargados exitosamente")
+        
+        # 13. Ahora sí, generar targets con memoria limpia
+        logger.info("PASO 13: Generando targets...")
         conn = generar_targets(conn, SQL_TABLE_NAME)
 
-        # 14. Guardar el CSV con el FE
-        save_sql_table_to_parquet(conn,SQL_TABLE_NAME, OUTPUT_PATH_FE)
+        # 14. Guardar resultado final CON targets
+        logger.info("PASO 14: Guardando resultado final CON targets...")
+        save_sql_table_to_parquet(conn, SQL_TABLE_NAME, OUTPUT_PATH_FE)
+        
+        logger.info("=== PIPELINE COMPLETADO EXITOSAMENTE ===")
 
     except Exception as e:
         logger.error(f"Error durante la ejecución del pipeline: {e}")
@@ -197,6 +238,9 @@ def main():
         if conn:
             conn.close()
             logger.info("Conexión a DuckDB cerrada.")
+        
+        if temp_dir:
+            cleanup_temp_dir(temp_dir)
 
 if __name__ == "__main__":
     main()
