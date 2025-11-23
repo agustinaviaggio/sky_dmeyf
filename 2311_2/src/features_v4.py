@@ -1183,7 +1183,8 @@ def create_sum_features(conn: duckdb.DuckDBPyConnection, table_name: str, column
     new_cols_sql = []
     for cols, output_name in zip(columns_to_sum, output_names):
         # Crear expresión COALESCE con CAST para manejar VARCHAR
-        coalesce_exprs = [f"COALESCE(CAST({col} AS INTEGER), 0)" for col in cols]
+        #coalesce_exprs = [f"COALESCE(CAST({col} AS INTEGER), 0)" for col in cols]
+        coalesce_exprs = [f"COALESCE({col}, 0)" for col in cols]
         sum_expr = " + ".join(coalesce_exprs)
         new_cols_sql.append(f"{sum_expr} AS {output_name}")
     
