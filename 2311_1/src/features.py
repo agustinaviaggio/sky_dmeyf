@@ -1039,3 +1039,59 @@ def create_status_binary_attributes(conn: duckdb.DuckDBPyConnection, table_name:
     logger.info("Variables binarias de status generadas exitosamente")
     
     return conn
+
+def create_delta_attributes_chunked(conn, table_name, excluir_columnas, cant_delta=2):
+    """
+    Versión optimizada que procesa deltas en chunks pequeños
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Obtener columnas numéricas
+    columnas_query = f"""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = '{table_name}' 
+        AND data_type IN ('INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT', 'DECIMAL', 'HUGEINT')
+        AND column_name NOT IN ({','.join([f"'{col}'" for col in excluir_columnas])})
+    """
+    columnas_numericas = [row[0] for row in conn.execute(columnas_query).fetchall()]
+    
+    if not columnas_numericas:
+        return conn
+    
+    logger.info(f"Creando atributos DELTA para {len(columnas_numericas)} columnas")
+    
+    # Procesar de a 5 columnas para minimizar memoria
+    batch_size = 5
+    
+    for i in range(0, len(columnas_numericas), batch_size):
+        batch = columnas_numericas[i:i+batch_size]
+        logger.info(f"  Procesando lote {i//batch_size + 1}/{(len(columnas_numericas)-1)//batch_size + 1}: {len(batch)} columnas")
+        
+        for lag in range(1, cant_delta + 1):
+            for col in batch:
+                new_col = f"{col}_delta_{lag}"
+                lag_col = f"{col}_lag_{lag}"
+                
+                try:
+                    # Agregar columna
+                    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {new_col} DOUBLE")
+                    
+                    # Calcular delta
+                    conn.execute(f"""
+                        UPDATE {table_name}
+                        SET {new_col} = {col} - {lag_col}
+                        WHERE {lag_col} IS NOT NULL
+                    """)
+                    
+                except Exception as e:
+                    logger.error(f"Error procesando {col}_delta_{lag}: {e}")
+                    raise
+        
+        # Checkpoint cada lote
+        conn.execute("CHECKPOINT")
+        logger.info(f"    Checkpoint ejecutado")
+    
+    logger.info(f"Atributos DELTA creados exitosamente")
+    return conn
