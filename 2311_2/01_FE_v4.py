@@ -303,6 +303,21 @@ def main():
             output_names=['patrimonio_neto']
         )
 
+        print("=== DIAGNÓSTICO DE TIPOS ===")
+        for cols_tuple in [
+            ('mplazo_fijo_dolares', 'mplazo_fijo_pesos'),
+            ('mplazo_fijo_dolares', 'mplazo_fijo_pesos', 'minversion1_pesos', 'minversion1_dolares', 'minversion2'),
+            ('cplazo_fijo', 'cinversion1', 'cinversion2')
+        ]:
+            print(f"\nColumnas: {cols_tuple}")
+            for col in cols_tuple:
+                tipo = conn.execute(f"""
+                    SELECT type 
+                    FROM pragma_table_info('{SQL_TABLE_NAME}')
+                    WHERE name = '{col}'
+                """).fetchone()
+                print(f"  {col}: {tipo[0] if tipo else 'NO EXISTE'}")
+
         # 13.23 Actividad por tipo
         conn = create_sum_features(
             conn, SQL_TABLE_NAME,
