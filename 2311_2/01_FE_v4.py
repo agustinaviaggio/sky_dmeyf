@@ -83,6 +83,25 @@ def main():
         # 1. Cargar datos y crear tabla sql
         conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_FE, SQL_TABLE_NAME)
 
+        logger.info("Verificando y convirtiendo columnas VARCHAR numéricas...")
+        varchar_cols = conn.execute(f"""
+            SELECT name 
+            FROM pragma_table_info('{SQL_TABLE_NAME}')
+            WHERE type = 'VARCHAR'
+            AND name NOT IN ('numero_de_cliente', 'clase_ternaria')  -- Excluir IDs y targets
+        """).fetchall()
+
+        for col_tuple in varchar_cols:
+            col = col_tuple[0]
+            try:
+                # Intentar convertir a DOUBLE si es numérico
+                conn.execute(f"""
+                    ALTER TABLE {SQL_TABLE_NAME}
+                    ALTER COLUMN {col} TYPE DOUBLE USING TRY_CAST({col} AS DOUBLE)
+                """)
+                logger.info(f"Columna {col} convertida de VARCHAR a DOUBLE")
+            except Exception as e:
+                logger.debug(f"Columna {col} permanece como VARCHAR: {e}")
 
         conn = create_status_binary_attributes(conn, SQL_TABLE_NAME)
         cols_to_drop = ["master_status", "visa_status"]
