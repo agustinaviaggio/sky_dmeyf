@@ -2,8 +2,8 @@ import logging
 from datetime import datetime
 import os
 import duckdb
-from src.config import *
 from src.features import *
+from src.config import *
 
 ### Configuración de logging ###
 os.makedirs("logs", exist_ok=True)
@@ -20,65 +20,40 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+logger.info("Iniciando programa de optimización con log fechado")
+
+### Manejo de Configuración en YAML ###
+logger.info("Configuración cargada desde YAML")
+logger.info(f"STUDY_NAME: {STUDY_NAME}")
+logger.info(f"DATA_PATH_FE: {DATA_PATH_FE}")
 
 def setup_duckdb_connection():
-    """Configura conexión DuckDB con archivo en disco"""
+    """Configura conexión DuckDB en memoria pura (sin archivo)"""
     
-    # Usar archivo en disco en lugar de :memory:
-    db_file = f'/tmp/duckdb_{os.environ.get("USER", "default")}_{STUDY_NAME}.db'
+    conn = duckdb.connect(database=':memory:')
     
-    # Eliminar archivo anterior si existe
-    if os.path.exists(db_file):
-        os.remove(db_file)
-        logger.info(f"Archivo de base de datos anterior eliminado: {db_file}")
-    
-    conn = duckdb.connect(database=db_file)
-    
-    # Configuración conservadora
-    conn.execute("SET memory_limit='16GB'")
-    conn.execute("SET max_memory='16GB'")
-    conn.execute("SET threads=4")
+    # Configuración MUY conservadora
+    conn.execute("SET memory_limit='14GB'")  # Reducido
+    conn.execute("SET max_memory='14GB'")
+    conn.execute("SET threads=3")  # Reducido
     conn.execute("SET preserve_insertion_order=false")
     
     logger.info(f"DuckDB configurado:")
-    logger.info(f"  - database: {db_file}")
-    logger.info(f"  - memory_limit: 16GB")
-    logger.info(f"  - threads: 4")
+    logger.info(f"  - database: :memory:")
+    logger.info(f"  - memory_limit: 14GB")
+    logger.info(f"  - threads: 3")
     
-    return conn, db_file
-
-def cleanup_database(db_file):
-    """Limpia archivo de base de datos"""
-    try:
-        if os.path.exists(db_file):
-            os.remove(db_file)
-            logger.info(f"Archivo de base de datos eliminado: {db_file}")
-    except Exception as e:
-        logger.warning(f"Error eliminando base de datos: {e}")
-
-def save_checkpoint(conn, table_name, step_name):
-    """Guarda checkpoint intermedio en Parquet"""
-    checkpoint_path = f'/tmp/checkpoint_{step_name}.parquet'
-    logger.info(f"Guardando checkpoint: {checkpoint_path}")
-    
-    conn.execute(f"COPY {table_name} TO '{checkpoint_path}' (FORMAT PARQUET, COMPRESSION ZSTD)")
-    
-    # Verificar tamaño
-    size_mb = os.path.getsize(checkpoint_path) / (1024 * 1024)
-    logger.info(f"Checkpoint guardado: {size_mb:.2f} MB")
-    
-    return checkpoint_path
+    return conn
 
 def main():
-    """Pipeline principal con checkpoints intermedios"""
-    logger.info("=== INICIANDO INGENIERIA DE ATRIBUTOS (Versión Optimizada) ===")
+    """Pipeline principal sin checkpoints (directo a GCS)"""
+    logger.info("=== INICIANDO INGENIERIA DE ATRIBUTOS (Sin Checkpoints) ===")
     
-    db_file = None
     conn = None
     
     try:
         # Setup DuckDB
-        conn, db_file = setup_duckdb_connection()
+        conn = setup_duckdb_connection()
         
         # Configurar acceso a GCS
         from google.auth import default
@@ -99,7 +74,6 @@ def main():
         """)
         logger.info("Secret de GCS configurado exitosamente")
         
-       
         # 1. Cargar datos
         logger.info("PASO 1: Cargando datos...")
         conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_FE, SQL_TABLE_NAME)
@@ -144,38 +118,67 @@ def main():
         logger.info("PASO 6: Creando atributos de ratios...")
         conn = create_ratio_m_c_attributes(conn, SQL_TABLE_NAME)
         
-        # CHECKPOINT 1
-        save_checkpoint(conn, SQL_TABLE_NAME, "after_basic_features")
-        
-        # 7. Lags
+        # 7. Lags (SIN CHECKPOINT)
         logger.info("PASO 7: Creando atributos LAG...")
         excluir_columnas_lag = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_tc_fecha + low_cardinality_cols
         conn = create_lag_attributes(conn, SQL_TABLE_NAME, excluir_columnas_lag, cant_lag=2)
         
-        # CHECKPOINT 2
-        save_checkpoint(conn, SQL_TABLE_NAME, "after_lags")
-        
-        # 8. Deltas
+        # 8. Deltas (SIN CHECKPOINT)
         logger.info("PASO 8: Creando atributos DELTA...")
         cols_lag_list = [c[0] for c in conn.execute(f"SELECT name FROM pragma_table_info('{SQL_TABLE_NAME}') WHERE name LIKE '%lag_1' OR name LIKE '%lag_2'").fetchall()]
         excluir_columnas_delta = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_list + cols_tc_fecha + low_cardinality_cols
+        conn = create_delta_attributes(conn, SQL_TABLE_NAME, excluir_columnas_delta, cant_delta=2)
         
-        # PROCESAR DELTAS EN CHUNKS MÁS PEQUEÑOS
-        conn = create_delta_attributes_chunked(conn, SQL_TABLE_NAME, excluir_columnas_delta, cant_delta=2)
+        # 9. MAX (OPCIONAL - solo si hay suficiente memoria)
+        logger.info("PASO 9: Creando atributos MAX...")
+        try:
+            cols_lag_delta_list = [c[0] for c in conn.execute(f"""
+                SELECT name FROM pragma_table_info('{SQL_TABLE_NAME}')
+                WHERE name LIKE '%lag_1' OR name LIKE '%lag_2'
+                   OR name LIKE '%delta_1' OR name LIKE '%delta_2'
+            """).fetchall()]
+            excluir_columnas_max = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_list + cols_tc_fecha + low_cardinality_cols
+            conn = create_max_attributes(conn, SQL_TABLE_NAME, excluir_columnas_max, month_window=3)
+        except Exception as e:
+            logger.warning(f"No se pudieron crear atributos MAX: {e}")
+            logger.info("Continuando sin atributos MAX...")
         
-        # CHECKPOINT 3
-        save_checkpoint(conn, SQL_TABLE_NAME, "after_deltas")
+        # 10. MIN (OPCIONAL - solo si hay suficiente memoria)
+        logger.info("PASO 10: Creando atributos MIN...")
+        try:
+            cols_lag_delta_max_list = [c[0] for c in conn.execute(f"""
+                SELECT name FROM pragma_table_info('{SQL_TABLE_NAME}')
+                WHERE name LIKE '%lag_1' OR name LIKE '%lag_2'
+                   OR name LIKE '%delta_1' OR name LIKE '%delta_2'
+                   OR name LIKE '%max_3'
+            """).fetchall()]
+            excluir_columnas_min = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_max_list + cols_tc_fecha + low_cardinality_cols
+            conn = create_min_attributes(conn, SQL_TABLE_NAME, excluir_columnas_min, month_window=3)
+        except Exception as e:
+            logger.warning(f"No se pudieron crear atributos MIN: {e}")
+            logger.info("Continuando sin atributos MIN...")
         
-        # 9-11. MAX, MIN, AVG - SALTAR POR AHORA si siguen fallando
-        logger.info("PASO 9-11: Saltando MAX, MIN, AVG por limitaciones de recursos")
-        logger.info("Considera procesarlos en una máquina con más espacio en disco")
+        # 11. AVG (OPCIONAL - solo si hay suficiente memoria)
+        logger.info("PASO 11: Creando atributos AVG...")
+        try:
+            cols_lag_delta_max_min_list = [c[0] for c in conn.execute(f"""
+                SELECT name FROM pragma_table_info('{SQL_TABLE_NAME}')
+                WHERE name LIKE '%lag_1' OR name LIKE '%lag_2'
+                   OR name LIKE '%delta_1' OR name LIKE '%delta_2'
+                   OR name LIKE '%max_3' OR name LIKE '%min_3'
+            """).fetchall()]
+            excluir_columnas_avg = ['numero_de_cliente', 'foto_mes', 'cliente_edad', 'cliente_antiguedad'] + cols_lag_delta_max_min_list + cols_tc_fecha + low_cardinality_cols
+            conn = create_avg_attributes(conn, SQL_TABLE_NAME, excluir_columnas_avg, month_window=3)
+        except Exception as e:
+            logger.warning(f"No se pudieron crear atributos AVG: {e}")
+            logger.info("Continuando sin atributos AVG...")
         
         # 12. Targets
         logger.info("PASO 12: Generando targets...")
         conn = generar_targets(conn, SQL_TABLE_NAME)
         
-        # 13. Guardar resultado final
-        logger.info("PASO 13: Guardando resultado final...")
+        # 13. Guardar DIRECTO A GCS (sin checkpoint local)
+        logger.info("PASO 13: Guardando resultado final directo a GCS...")
         save_sql_table_to_parquet(conn, SQL_TABLE_NAME, OUTPUT_PATH_FE)
         
         logger.info("=== PIPELINE COMPLETADO EXITOSAMENTE ===")
@@ -188,18 +191,6 @@ def main():
         if conn:
             conn.close()
             logger.info("Conexión a DuckDB cerrada.")
-        
-        if db_file:
-            cleanup_database(db_file)
-        
-        # Limpiar checkpoints
-        import glob
-        for checkpoint in glob.glob('/tmp/checkpoint_*.parquet'):
-            try:
-                os.remove(checkpoint)
-                logger.info(f"Checkpoint eliminado: {checkpoint}")
-            except:
-                pass
 
 if __name__ == "__main__":
     main()
