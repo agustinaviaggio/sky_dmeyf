@@ -246,14 +246,12 @@ def guardar_iteracion(trial, ganancia, archivo_base=None):
 def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optuna.Study:
     """
     Crea un nuevo estudio de Optuna o carga uno existente.
-    Descarga desde GCS si existe.
     """
     study_name = STUDY_NAME
   
     if semilla is None:
         semilla = SEMILLAS[0] if isinstance(SEMILLAS, list) else SEMILLAS
     
-    # Directorio local
     local_db_dir = os.path.expanduser("~/optuna_db")
     os.makedirs(local_db_dir, exist_ok=True)
 
@@ -261,28 +259,30 @@ def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optun
     gcs_path = f"{BUCKET_NAME}optuna_db/{study_name}.db"
     storage = f"sqlite:///{db_file}"
     
-    # INTENTAR DESCARGAR DESDE GCS
+    # DESCARGAR DESDE GCS SI EXISTE
     try:
         logger.info(f"Buscando DB en GCS: {gcs_path}")
         
         temp_conn = duckdb.connect(':memory:')
         temp_conn.execute("INSTALL httpfs; LOAD httpfs;")
         
+        # REFRESCAR TOKEN
         from google.auth import default
         from google.auth.transport.requests import Request
         
         credentials, _ = default()
         credentials.refresh(Request())
+        token = credentials.token
         
         temp_conn.execute(f"""
             CREATE SECRET (
                 TYPE GCS,
                 PROVIDER config,
-                BEARER_TOKEN '{credentials.token}'
+                BEARER_TOKEN '{token}'
             )
         """)
         
-        # Intentar leer desde GCS
+        # Descargar desde GCS
         temp_conn.execute(f"""
             COPY (SELECT * FROM read_blob('{gcs_path}')) 
             TO '{db_file}'
@@ -292,29 +292,24 @@ def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optun
         logger.info(f"✓ DB descargada desde GCS")
         
     except Exception as e:
-        logger.info(f"No se encontró DB en GCS (normal si es primera ejecución)")
+        logger.info(f"No hay DB en GCS (normal en primera ejecución)")
     
     # CARGAR O CREAR ESTUDIO
     if os.path.exists(db_file):
-        logger.info(f"Base de datos encontrada: {db_file}")
-        
         try:
             study = optuna.load_study(study_name=study_name, storage=storage)
             n_trials = len(study.trials)
-            logger.info(f"✓ Estudio cargado - Trials previos: {n_trials}")
+            logger.info(f"✓ Estudio cargado - {n_trials} trials previos")
             
             if n_trials > 0:
                 logger.info(f"✓ Mejor ganancia: {study.best_value:,.0f}")
-                logger.info(f"✓ Continuando desde trial {n_trials}")
             
             return study
             
         except Exception as e:
-            logger.warning(f"No se pudo cargar: {e}")
-    else:
-        logger.info(f"Creando nuevo estudio: {db_file}")
-  
-    # CREAR NUEVO ESTUDIO
+            logger.warning(f"Error al cargar: {e}")
+    
+    # CREAR NUEVO
     study = optuna.create_study(
         direction='maximize',
         study_name=study_name,
@@ -323,7 +318,7 @@ def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optun
         load_if_exists=True
     )
   
-    logger.info(f"✓ Nuevo estudio creado: {study_name}")
+    logger.info(f"✓ Nuevo estudio creado")
     return study
 
 def optimizar(conn, tabla: str, study_name: str = None, n_trials=100) -> optuna.Study:
@@ -795,6 +790,7 @@ import duckdb
 def sincronizar_db_con_gcs():
     """
     Actualiza la base de datos de Optuna en GCS usando DuckDB.
+    Refresca el token de autenticación cada vez.
     """
     local_db_dir = os.path.expanduser("~/optuna_db")
     db_file = os.path.join(local_db_dir, f"{STUDY_NAME}.db")
@@ -806,36 +802,38 @@ def sincronizar_db_con_gcs():
     gcs_path = f"{BUCKET_NAME}optuna_db/{STUDY_NAME}.db"
     
     try:
-        # Crear conexión temporal con autenticación GCS
+        # Crear conexión temporal
         temp_conn = duckdb.connect(':memory:')
         temp_conn.execute("INSTALL httpfs; LOAD httpfs;")
         
-        # Autenticar con GCS
+        # REFRESCAR TOKEN (IMPORTANTE)
         from google.auth import default
         from google.auth.transport.requests import Request
         
         credentials, _ = default()
-        credentials.refresh(Request())
+        credentials.refresh(Request())  # Esto obtiene un token nuevo
+        token = credentials.token
         
+        # Crear secret con el token NUEVO
         temp_conn.execute(f"""
             CREATE SECRET (
                 TYPE GCS,
                 PROVIDER config,
-                BEARER_TOKEN '{credentials.token}'
+                BEARER_TOKEN '{token}'
             )
         """)
         
-        # Leer el archivo SQLite como blob y escribirlo a GCS
+        # Copiar archivo a GCS
         temp_conn.execute(f"""
             COPY (SELECT * FROM read_blob('{db_file}')) 
             TO '{gcs_path}'
         """)
         
         temp_conn.close()
-        logger.info(f"✓ DB actualizada en GCS: {gcs_path}")
+        logger.info(f"✓ DB actualizada en GCS")
         
     except Exception as e:
-        logger.warning(f"Error al sincronizar DB: {e}")
+        logger.warning(f"Error al sincronizar: {e}")
         import traceback
         logger.warning(traceback.format_exc())
 
