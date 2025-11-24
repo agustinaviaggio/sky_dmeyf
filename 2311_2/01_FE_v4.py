@@ -546,7 +546,7 @@ def main():
         # ========================================================
         # ACTIVE_QUARTER
         # ========================================================
-        if not skip_to_trends:
+        if not (skip_to_trends or skip_to_accel or skip_to_momentum or skip_to_streaks or skip_to_time_since):
             logger.info("=== CREANDO active_quarter ===")
             conn = create_active_quarter_feature(conn, SQL_TABLE_NAME)
             
@@ -557,7 +557,7 @@ def main():
         # ========================================================
         # TRENDS
         # ========================================================
-        if not skip_to_accel:
+        if not (skip_to_accel or skip_to_momentum or skip_to_streaks or skip_to_time_since):
             logger.info("=== CREANDO TRENDS ===")
             vars_criticas_trend = [
                 'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc', 'cproductos',
@@ -579,7 +579,7 @@ def main():
         # ========================================================
         # ACCELERATION
         # ========================================================
-        if not skip_to_momentum:
+        if not (skip_to_momentum or skip_to_streaks or skip_to_time_since):
             logger.info("=== CREANDO ACCELERATION ===")
             vars_criticas_accel = [
                 'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc', 'cproductos',
@@ -594,7 +594,7 @@ def main():
         # ========================================================
         # MOMENTUM
         # ========================================================
-        if not skip_to_streaks:
+        if not (skip_to_streaks or skip_to_time_since):
             logger.info("=== CREANDO MOMENTUM ===")
             vars_momentum = [
                 'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc',
