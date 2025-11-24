@@ -245,47 +245,74 @@ def guardar_iteracion(trial, ganancia, archivo_base=None):
 
 def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optuna.Study:
     """
-    Crea un nuevo estudio de Optuna o carga uno existente desde SQLite LOCAL.
-    Luego sincroniza con GCS.
+    Crea un nuevo estudio de Optuna o carga uno existente.
+    Primero intenta descargar desde GCS, luego busca local.
     """
     study_name = STUDY_NAME
   
     if semilla is None:
         semilla = SEMILLAS[0] if isinstance(SEMILLAS, list) else SEMILLAS
     
-    # USAR DIRECTORIO LOCAL
+    # Directorio local
     local_db_dir = os.path.expanduser("~/optuna_db")
     os.makedirs(local_db_dir, exist_ok=True)
 
-    # Ruta de la base de datos
+    # Archivos
     db_file = os.path.join(local_db_dir, f"{study_name}.db")
+    gcs_path = f"{BUCKET_NAME}optuna_db/{study_name}.db"
     storage = f"sqlite:///{db_file}"
- 
-    # Verificar si existe un estudio previo
+    
+    # 1. INTENTAR DESCARGAR DESDE GCS (si existe)
+    try:
+        import subprocess
+        logger.info(f"Buscando DB en GCS: {gcs_path}")
+        
+        result = subprocess.run(
+            ["gsutil", "-q", "cp", gcs_path, db_file],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            logger.info(f"✓ DB descargada desde GCS")
+        else:
+            logger.info(f"No se encontró DB en GCS (es normal si es la primera vez)")
+            
+    except Exception as e:
+        logger.info(f"No se pudo descargar DB desde GCS: {e}")
+    
+    # 2. CARGAR O CREAR ESTUDIO LOCAL
     if os.path.exists(db_file):
-        logger.info(f"Base de datos LOCAL encontrada: {db_file}")
+        logger.info(f"Base de datos encontrada: {db_file}")
         
         try:
             study = optuna.load_study(study_name=study_name, storage=storage)
-            logger.info(f"Estudio cargado - Trials previos: {len(study.trials)}")
-            if len(study.trials) > 0:
-                logger.info(f"Mejor ganancia hasta ahora: {study.best_value:,.0f}")
+            n_trials = len(study.trials)
+            logger.info(f"✓ Estudio cargado - Trials previos: {n_trials}")
+            
+            if n_trials > 0:
+                logger.info(f"✓ Mejor ganancia hasta ahora: {study.best_value:,.0f}")
+                logger.info(f"✓ Continuando desde trial {n_trials}")
+            
             return study
+            
         except Exception as e:
             logger.warning(f"No se pudo cargar el estudio: {e}")
+            logger.info(f"Creando nuevo estudio...")
     else:
-        logger.info(f"Creando nueva base de datos: {db_file}")
+        logger.info(f"No existe DB local. Creando nuevo estudio: {db_file}")
   
-    # Crear nuevo estudio
+    # 3. CREAR NUEVO ESTUDIO
     study = optuna.create_study(
         direction='maximize',
-        study_name=STUDY_NAME,
+        study_name=study_name,
         storage=storage,
-        sampler=optuna.samplers.TPESampler(seed=SEMILLAS[0]),
+        sampler=optuna.samplers.TPESampler(seed=semilla),
         load_if_exists=True
     )
   
-    logger.info(f"Nuevo estudio creado: {study_name}")
+    logger.info(f"✓ Nuevo estudio creado: {study_name}")
     return study
 
 def optimizar(conn, tabla: str, study_name: str = None, n_trials=100) -> optuna.Study:
