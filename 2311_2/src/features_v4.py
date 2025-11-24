@@ -1976,10 +1976,10 @@ def create_active_quarter_feature(conn: duckdb.DuckDBPyConnection, table_name: s
     
     return conn
 
-def create_trend_features(conn: duckdb.DuckDBPyConnection, table_name: str, columns: list[str], window: int = 3, batch_size: int = 5) -> duckdb.DuckDBPyConnection:
+def create_trend_features(conn: duckdb.DuckDBPyConnection, table_name: str, columns: list[str], window: int = 3, batch_size: int = 3) -> duckdb.DuckDBPyConnection:
     """
     Calcula tendencia (slope) usando regresión lineal sobre ventana temporal.
-    Procesa en batches para evitar problemas de memoria.
+    Procesa columna por columna usando UPDATE para evitar problemas de memoria.
     
     Parameters:
     -----------
@@ -1992,7 +1992,7 @@ def create_trend_features(conn: duckdb.DuckDBPyConnection, table_name: str, colu
     window : int
         Ventana temporal (default 3 meses)
     batch_size : int
-        Número de columnas a procesar por batch (default 5)
+        Número de columnas a procesar por batch (default 3)
     
     Returns:
     --------
@@ -2001,17 +2001,8 @@ def create_trend_features(conn: duckdb.DuckDBPyConnection, table_name: str, colu
     
     logger.info(f"Creando tendencias (slope) para {len(columns)} columnas con ventana {window} en batches de {batch_size}")
     
-    # Crear índices temporales UNA SOLA VEZ
-    logger.info("Creando índices temporales para cálculo de slope...")
-    sql_temp_idx = f"""
-        CREATE TEMP TABLE IF NOT EXISTS temp_with_idx AS
-        SELECT 
-            numero_de_cliente,
-            foto_mes,
-            ROW_NUMBER() OVER (PARTITION BY numero_de_cliente ORDER BY foto_mes) AS idx_temporal
-        FROM {table_name}
-    """
-    conn.execute(sql_temp_idx)
+    # Crear tabla temporal con índices UNA SOLA VEZ (solo keys + datos necesarios)
+    logger.info("Preparando datos para cálculo de slopes...")
     
     # Procesar columnas en batches
     num_batches = (len(columns) + batch_size - 1) // batch_size
@@ -2021,39 +2012,54 @@ def create_trend_features(conn: duckdb.DuckDBPyConnection, table_name: str, colu
         end_idx = min((batch_num + 1) * batch_size, len(columns))
         batch_cols = columns[start_idx:end_idx]
         
-        logger.info(f"Procesando batch {batch_num + 1}/{num_batches}: columnas {start_idx + 1}-{end_idx}")
+        logger.info(f"Procesando batch {batch_num + 1}/{num_batches}: {len(batch_cols)} columnas")
         
-        # Generar expresiones para este batch
-        new_cols_sql = []
-        for col in batch_cols:
-            new_cols_sql.append(f"""
-                REGR_SLOPE(t.{col}, idx.idx_temporal) 
-                    OVER (
-                        PARTITION BY t.numero_de_cliente 
-                        ORDER BY t.foto_mes 
-                        ROWS BETWEEN {window} PRECEDING AND 1 PRECEDING
-                    ) AS {col}_trend_{window}
-            """)
+        # Crear tabla temporal con los datos de este batch
+        cols_str = ", ".join(batch_cols)
         
-        new_cols_str = ", " + ", ".join(new_cols_sql)
-        
-        # Agregar las nuevas columnas directamente a la tabla original
-        sql_add_cols = f"""
-            CREATE OR REPLACE TABLE {table_name} AS
+        sql_temp = f"""
+            CREATE TEMP TABLE IF NOT EXISTS temp_slopes AS
+            WITH indexed AS (
+                SELECT 
+                    numero_de_cliente,
+                    foto_mes,
+                    ROW_NUMBER() OVER (PARTITION BY numero_de_cliente ORDER BY foto_mes) AS idx_temporal,
+                    {cols_str}
+                FROM {table_name}
+            )
             SELECT 
-                t.*
-                {new_cols_str}
-            FROM {table_name} t
-            JOIN temp_with_idx idx 
-            ON t.numero_de_cliente = idx.numero_de_cliente 
-            AND t.foto_mes = idx.foto_mes
+                numero_de_cliente,
+                foto_mes,
+                {', '.join([f"REGR_SLOPE({col}, idx_temporal) OVER (PARTITION BY numero_de_cliente ORDER BY foto_mes ROWS BETWEEN {window} PRECEDING AND 1 PRECEDING) AS {col}_trend_{window}" for col in batch_cols])}
+            FROM indexed
         """
         
-        conn.execute(sql_add_cols)
+        conn.execute(sql_temp)
+        
+        # Agregar columnas una por una
+        for col in batch_cols:
+            new_col = f"{col}_trend_{window}"
+            
+            # Agregar columna
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {new_col} DOUBLE")
+            
+            # Actualizar valores con UPDATE
+            conn.execute(f"""
+                UPDATE {table_name} t
+                SET {new_col} = s.{new_col}
+                FROM temp_slopes s
+                WHERE t.numero_de_cliente = s.numero_de_cliente 
+                AND t.foto_mes = s.foto_mes
+            """)
+        
+        # Limpiar tabla temporal
+        conn.execute("DROP TABLE IF EXISTS temp_slopes")
+        
         logger.info(f"Batch {batch_num + 1}/{num_batches} completado")
+        
+        # Liberar memoria después de cada batch
+        import gc
+        gc.collect()
     
-    # Limpiar tabla temporal
-    conn.execute("DROP TABLE IF EXISTS temp_with_idx")
-    
-    logger.info(f"Tendencias (slope) creadas exitosamente para todas las columnas")
+    logger.info(f"Tendencias (slope) creadas exitosamente para {len(columns)} columnas")
     return conn
