@@ -144,37 +144,44 @@ def main():
         skip_to_momentum = False
         skip_to_streaks = False
         skip_to_time_since = False
+        checkpoint_loaded = False
         
         # Verificar checkpoints en orden inverso (del más reciente al más antiguo)
         if checkpoint_exists(conn, checkpoint_after_streaks):
-            logger.info("=== CHECKPOINT DESPUÉS DE STREAKS ENCONTRADO - CARGANDO ===")
+            logger.info("=== CHECKPOINT DESPUES DE STREAKS ENCONTRADO - CARGANDO ===")
             load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_streaks)
             skip_to_time_since = True
+            checkpoint_loaded = True
             
         elif checkpoint_exists(conn, checkpoint_after_momentum):
-            logger.info("=== CHECKPOINT DESPUÉS DE MOMENTUM ENCONTRADO - CARGANDO ===")
+            logger.info("=== CHECKPOINT DESPUES DE MOMENTUM ENCONTRADO - CARGANDO ===")
             load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_momentum)
             skip_to_streaks = True
+            checkpoint_loaded = True
             
         elif checkpoint_exists(conn, checkpoint_after_accel):
-            logger.info("=== CHECKPOINT DESPUÉS DE ACCEL ENCONTRADO - CARGANDO ===")
+            logger.info("=== CHECKPOINT DESPUES DE ACCEL ENCONTRADO - CARGANDO ===")
             load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_accel)
             skip_to_momentum = True
+            checkpoint_loaded = True
             
         elif checkpoint_exists(conn, checkpoint_after_trends):
-            logger.info("=== CHECKPOINT DESPUÉS DE TRENDS ENCONTRADO - CARGANDO ===")
+            logger.info("=== CHECKPOINT DESPUES DE TRENDS ENCONTRADO - CARGANDO ===")
             load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_trends)
             skip_to_accel = True
+            checkpoint_loaded = True
             
         elif checkpoint_exists(conn, checkpoint_after_active):
-            logger.info("=== CHECKPOINT DESPUÉS DE active_quarter ENCONTRADO - CARGANDO ===")
+            logger.info("=== CHECKPOINT DESPUES DE active_quarter ENCONTRADO - CARGANDO ===")
             load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_active)
             skip_to_trends = True
+            checkpoint_loaded = True
             
         elif checkpoint_exists(conn, checkpoint_before_active):
             logger.info("=== CHECKPOINT ANTES DE active_quarter ENCONTRADO - CARGANDO ===")
             load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_before_active)
             skip_to_active = True
+            checkpoint_loaded = True
             
         else:
             logger.info("=== NO HAY CHECKPOINTS - EJECUTANDO TODO EL PIPELINE ===")
@@ -183,7 +190,7 @@ def main():
         # EJECUTAR PIPELINE DESDE EL PUNTO CORRESPONDIENTE
         # ========================================================
         
-        if not skip_to_active:
+        if not checkpoint_loaded:
             logger.info("=== NO HAY CHECKPOINT - EJECUTANDO TODO EL PIPELINE ===")
             
             # 1. Cargar datos y crear tabla sql
