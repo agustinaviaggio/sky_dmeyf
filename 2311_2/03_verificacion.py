@@ -9,12 +9,25 @@ datasets = [
 ]
 
 # Conectar a DuckDB
-con = duckdb.connect()
+conn = duckdb.connect()
 
-# Instalar y cargar extensión de GCS
-con.execute("INSTALL httpfs;")
-con.execute("LOAD httpfs;")
-con.execute("SET gcs_access_key_id='';")
+# Configurar acceso a GCS
+from google.auth import default
+from google.auth.transport.requests import Request
+
+credentials, project = default()
+credentials.refresh(Request())
+token = credentials.token
+
+conn.execute("INSTALL httpfs;")
+conn.execute("LOAD httpfs;")
+conn.execute(f"""
+    CREATE SECRET (
+        TYPE GCS,
+        PROVIDER config,
+        BEARER_TOKEN '{token}'
+    )
+""")
 
 print("Cargando datasets para foto_mes = 202106...\n")
 
@@ -29,9 +42,9 @@ for i, dataset_path in enumerate(datasets, 1):
     WHERE foto_mes = 202106
     """
     
-    con.execute(query)
+    conn.execute(query)
     
-    count = con.execute(f"SELECT COUNT(*) FROM {dataset_name}").fetchone()[0]
+    count = conn.execute(f"SELECT COUNT(*) FROM {dataset_name}").fetchone()[0]
     print(f"Dataset {i} ({dataset_path.split('/')[-1]}): {count} registros")
 
 print("\n" + "="*80)
@@ -55,7 +68,7 @@ FULL OUTER JOIN dataset_3 d3 ON d1.numero_de_cliente = d3.numero_de_cliente
 FULL OUTER JOIN dataset_4 d4 ON d1.numero_de_cliente = d4.numero_de_cliente
 """
 
-result = con.execute(check_query).fetchone()
+result = conn.execute(check_query).fetchone()
 print(f"   Dataset 1: {result[0]} clientes")
 print(f"   Dataset 2: {result[1]} clientes")
 print(f"   Dataset 3: {result[2]} clientes")
@@ -87,7 +100,7 @@ INNER JOIN dataset_3 d3 ON d1.numero_de_cliente = d3.numero_de_cliente
 INNER JOIN dataset_4 d4 ON d1.numero_de_cliente = d4.numero_de_cliente
 """
 
-result = con.execute(ternario_query).fetchone()
+result = conn.execute(ternario_query).fetchone()
 print(f"   Total registros comparados: {result[0]}")
 print(f"   Consistentes: {result[1]} ({result[1]/result[0]*100:.2f}%)")
 print(f"   Inconsistentes: {result[2]} ({result[2]/result[0]*100:.2f}%)")
@@ -117,7 +130,7 @@ INNER JOIN dataset_3 d3 ON d1.numero_de_cliente = d3.numero_de_cliente
 INNER JOIN dataset_4 d4 ON d1.numero_de_cliente = d4.numero_de_cliente
 """
 
-result = con.execute(binario_query).fetchone()
+result = conn.execute(binario_query).fetchone()
 print(f"   Total registros comparados: {result[0]}")
 print(f"   Consistentes: {result[1]} ({result[1]/result[0]*100:.2f}%)")
 print(f"   Inconsistentes: {result[2]} ({result[2]/result[0]*100:.2f}%)")
@@ -152,7 +165,7 @@ WHERE d1.target_ternario != d2.target_ternario
 LIMIT 10
 """
 
-inconsistencias = con.execute(inconsistencias_query).fetchall()
+inconsistencias = conn.execute(inconsistencias_query).fetchall()
 
 if inconsistencias:
     print("="*80)
@@ -164,7 +177,7 @@ if inconsistencias:
         print(f"  target_binario:  D1={row[5]}, D2={row[6]}, D3={row[7]}, D4={row[8]}")
 
 # Cerrar conexión
-con.close()
+conn.close()
 
 print("\n" + "="*80)
 print("VERIFICACIÓN COMPLETADA")
