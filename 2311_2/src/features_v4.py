@@ -1976,10 +1976,10 @@ def create_active_quarter_feature(conn: duckdb.DuckDBPyConnection, table_name: s
     
     return conn
 
-def create_trend_features(conn: duckdb.DuckDBPyConnection, table_name: str, columns: list[str], window: int = 3) -> duckdb.DuckDBPyConnection:
+def create_trend_features(conn: duckdb.DuckDBPyConnection, table_name: str, columns: list[str], window: int = 3, batch_size: int = 5) -> duckdb.DuckDBPyConnection:
     """
     Calcula tendencia (slope) usando regresión lineal sobre ventana temporal.
-    Optimizado con tabla temporal para mejor manejo de memoria.
+    Procesa en batches para evitar problemas de memoria.
     
     Parameters:
     -----------
@@ -1991,68 +1991,69 @@ def create_trend_features(conn: duckdb.DuckDBPyConnection, table_name: str, colu
         Lista de columnas para calcular tendencia
     window : int
         Ventana temporal (default 3 meses)
+    batch_size : int
+        Número de columnas a procesar por batch (default 5)
     
     Returns:
     --------
     duckdb.DuckDBPyConnection
     """
     
-    logger.info(f"Creando tendencias (slope) para {len(columns)} columnas con ventana {window}")
+    logger.info(f"Creando tendencias (slope) para {len(columns)} columnas con ventana {window} en batches de {batch_size}")
     
-    # Paso 1: Crear índices temporales
+    # Crear índices temporales UNA SOLA VEZ
     logger.info("Creando índices temporales para cálculo de slope...")
     sql_temp_idx = f"""
         CREATE TEMP TABLE IF NOT EXISTS temp_with_idx AS
         SELECT 
-            *,
+            numero_de_cliente,
+            foto_mes,
             ROW_NUMBER() OVER (PARTITION BY numero_de_cliente ORDER BY foto_mes) AS idx_temporal
         FROM {table_name}
     """
     conn.execute(sql_temp_idx)
     
-    # Paso 2: Calcular slopes en tabla temporal separada (solo keys + nuevas features)
-    logger.info("Calculando slopes usando regresión lineal...")
-    new_cols_sql = []
-    for col in columns:
-        new_cols_sql.append(f"""
-            REGR_SLOPE({col}, idx_temporal) 
-                OVER (
-                    PARTITION BY numero_de_cliente 
-                    ORDER BY foto_mes 
-                    ROWS BETWEEN {window} PRECEDING AND 1 PRECEDING
-                ) AS {col}_trend_{window}
-        """)
+    # Procesar columnas en batches
+    num_batches = (len(columns) + batch_size - 1) // batch_size
     
-    new_cols_str = ", ".join(new_cols_sql)
+    for batch_num in range(num_batches):
+        start_idx = batch_num * batch_size
+        end_idx = min((batch_num + 1) * batch_size, len(columns))
+        batch_cols = columns[start_idx:end_idx]
+        
+        logger.info(f"Procesando batch {batch_num + 1}/{num_batches}: columnas {start_idx + 1}-{end_idx}")
+        
+        # Generar expresiones para este batch
+        new_cols_sql = []
+        for col in batch_cols:
+            new_cols_sql.append(f"""
+                REGR_SLOPE(t.{col}, idx.idx_temporal) 
+                    OVER (
+                        PARTITION BY t.numero_de_cliente 
+                        ORDER BY t.foto_mes 
+                        ROWS BETWEEN {window} PRECEDING AND 1 PRECEDING
+                    ) AS {col}_trend_{window}
+            """)
+        
+        new_cols_str = ", " + ", ".join(new_cols_sql)
+        
+        # Agregar las nuevas columnas directamente a la tabla original
+        sql_add_cols = f"""
+            CREATE OR REPLACE TABLE {table_name} AS
+            SELECT 
+                t.*
+                {new_cols_str}
+            FROM {table_name} t
+            JOIN temp_with_idx idx 
+            ON t.numero_de_cliente = idx.numero_de_cliente 
+            AND t.foto_mes = idx.foto_mes
+        """
+        
+        conn.execute(sql_add_cols)
+        logger.info(f"Batch {batch_num + 1}/{num_batches} completado")
     
-    # Crear tabla temporal solo con las nuevas features
-    sql_temp_trends = f"""
-        CREATE TEMP TABLE IF NOT EXISTS temp_trends AS
-        SELECT 
-            numero_de_cliente,
-            foto_mes,
-            {new_cols_str}
-        FROM temp_with_idx
-    """
-    
-    conn.execute(sql_temp_trends)
-    
-    # Paso 3: Join con la tabla original
-    logger.info("Realizando join con tabla original...")
-    sql_join = f"""
-        CREATE OR REPLACE TABLE {table_name} AS
-        SELECT t.*, temp_trends.* EXCLUDE (numero_de_cliente, foto_mes)
-        FROM {table_name} t
-        JOIN temp_trends 
-        ON t.numero_de_cliente = temp_trends.numero_de_cliente 
-        AND t.foto_mes = temp_trends.foto_mes
-    """
-    
-    conn.execute(sql_join)
-    
-    # Limpiar tablas temporales
+    # Limpiar tabla temporal
     conn.execute("DROP TABLE IF EXISTS temp_with_idx")
-    conn.execute("DROP TABLE IF EXISTS temp_trends")
     
-    logger.info(f"Tendencias (slope) creadas exitosamente")
+    logger.info(f"Tendencias (slope) creadas exitosamente para todas las columnas")
     return conn
