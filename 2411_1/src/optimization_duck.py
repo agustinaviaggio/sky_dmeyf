@@ -192,6 +192,7 @@ def objetivo_ganancia(trial, conn, tabla: str, cv_splits: list) -> float:
 def guardar_iteracion(trial, ganancia, archivo_base=None):
     """
     Guarda cada iteración de la optimización en un único archivo JSON.
+    Y sincroniza la DB con GCS después de cada trial.
     """
     if archivo_base is None:
         archivo_base = STUDY_NAME
@@ -238,6 +239,9 @@ def guardar_iteracion(trial, ganancia, archivo_base=None):
     
     logger.info(f"Iteración {trial.number} guardada en {archivo}")
     logger.info(f"Ganancia: {ganancia:,.0f} - Parámetros: {trial.params}")
+    
+    # SINCRONIZAR DB CON GCS DESPUÉS DE CADA TRIAL
+    sincronizar_db_con_gcs()
 
 def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optuna.Study:
     """
@@ -253,7 +257,7 @@ def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optun
     local_db_dir = os.path.expanduser("~/optuna_db")
     os.makedirs(local_db_dir, exist_ok=True)
 
-    # Ruta LOCAL de la base de datos
+    # Ruta de la base de datos
     db_file = os.path.join(local_db_dir, f"{study_name}.db")
     storage = f"sqlite:///{db_file}"
  
@@ -270,7 +274,7 @@ def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optun
         except Exception as e:
             logger.warning(f"No se pudo cargar el estudio: {e}")
     else:
-        logger.info(f"Creando nueva base de datos LOCAL: {db_file}")
+        logger.info(f"Creando nueva base de datos: {db_file}")
   
     # Crear nuevo estudio
     study = optuna.create_study(
@@ -810,3 +814,37 @@ if __name__ == "__main__":
     # Cerrar conexión
     conn.close()
 
+def sincronizar_db_con_gcs():
+    """
+    Sube la base de datos de Optuna a GCS después de cada trial.
+    """
+    local_db_dir = os.path.expanduser("~/optuna_db")
+    db_file = os.path.join(local_db_dir, f"{STUDY_NAME}.db")
+    
+    if not os.path.exists(db_file):
+        logger.warning(f"No se encontró DB local: {db_file}")
+        return
+    
+    # Ruta en GCS
+    gcs_path = f"{BUCKET_NAME}optuna_db/{STUDY_NAME}.db"
+    
+    try:
+        import subprocess
+        
+        # Copiar archivo a GCS usando gsutil
+        result = subprocess.run(
+            ["gsutil", "-q", "cp", db_file, gcs_path],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            logger.info(f"✓ DB sincronizada con GCS (Trial completado)")
+        else:
+            logger.warning(f"Advertencia al sincronizar: {result.stderr}")
+            
+    except subprocess.TimeoutExpired:
+        logger.warning("Timeout al sincronizar con GCS, continuando...")
+    except Exception as e:
+        logger.warning(f"Error al sincronizar DB con GCS: {e}")
