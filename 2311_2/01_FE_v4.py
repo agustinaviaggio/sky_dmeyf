@@ -546,7 +546,7 @@ def main():
         # ========================================================
         # ACTIVE_QUARTER
         # ========================================================
-        if not (checkpoint_loaded or skip_to_trends):
+        if not skip_to_trends:
             logger.info("=== CREANDO active_quarter ===")
             conn = create_active_quarter_feature(conn, SQL_TABLE_NAME)
             
@@ -557,7 +557,7 @@ def main():
         # ========================================================
         # TRENDS
         # ========================================================
-        if not (checkpoint_loaded or skip_to_accel):
+        if not skip_to_accel:
             logger.info("=== CREANDO TRENDS ===")
             vars_criticas_trend = [
                 'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc', 'cproductos',
@@ -579,7 +579,7 @@ def main():
         # ========================================================
         # ACCELERATION
         # ========================================================
-        if not (checkpoint_loaded or skip_to_momentum):
+        if not skip_to_momentum:
             logger.info("=== CREANDO ACCELERATION ===")
             vars_criticas_accel = [
                 'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc', 'cproductos',
@@ -594,7 +594,7 @@ def main():
         # ========================================================
         # MOMENTUM
         # ========================================================
-        if not (checkpoint_loaded or skip_to_streaks):
+        if not skip_to_streaks:
             logger.info("=== CREANDO MOMENTUM ===")
             vars_momentum = [
                 'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc',
@@ -610,7 +610,7 @@ def main():
         # ========================================================
         # STREAKS
         # ========================================================
-        if not (checkpoint_loaded or skip_to_time_since):
+        if not skip_to_time_since:
             logger.info("=== CREANDO STREAKS ===")
             conditions_streaks = [
                 'flag_rentabilidad_negativa = 1',
@@ -642,6 +642,9 @@ def main():
             save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_streaks)
             gc.collect()
 
+        # ========================================================
+        # TIME_SINCE (ULTIMO PASO - SIN CHECKPOINT)
+        # ========================================================
         logger.info("=== CREANDO TIME_SINCE ===")
         conditions_time_since = [
             'flag_consumo_tc = 1',
