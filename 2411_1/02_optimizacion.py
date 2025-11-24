@@ -8,7 +8,8 @@ from src.optimization_duck import (
     optimizar, 
     evaluar_en_test, 
     guardar_resultados_test,
-    entrenar_y_guardar_modelos_finales
+    entrenar_y_guardar_modelos_finales,
+    sincronizar_db_con_gcs
 )
 from src.config import *
 
@@ -122,6 +123,10 @@ def main():
         logger.info("=== PIPELINE COMPLETADO ===")
         logger.info(f"Modelos finales guardados: {ensemble_info['study_name']}")
         logger.info(f"Ubicación: {os.path.expanduser(BUCKET_NAME)}/modelos_finales/")
+
+        # 7. SINCRONIZAR BASE DE DATOS CON GCS
+        logger.info("=== SINCRONIZANDO BASE DE DATOS CON GCS ===")
+        sincronizar_db_con_gcs()
 
     except Exception as e:
         logger.error(f"Error durante la ejecución del pipeline: {e}")
