@@ -1,10 +1,9 @@
-# 02_optimizacion.py - Versión final
-
+import duckdb
 import logging
 from datetime import datetime
 import os
 
-from src.features import create_sql_table_from_parquet
+from src.features import create_sql_table_from_parquet_csv
 from src.optimization_duck import (
     optimizar, 
     evaluar_en_test, 
@@ -44,9 +43,27 @@ def main():
     logger.info("=== INICIANDO OPTIMIZACIÓN CON CONFIGURACIÓN YAML ===")
 
     conn = None
-    try:  
+    try:
+        conn = duckdb.connect(database=':memory:')
+        # Configurar GCS
+        from google.auth import default
+        from google.auth.transport.requests import Request
+        
+        credentials, project = default()
+        credentials.refresh(Request())
+        token = credentials.token
+        
+        conn.execute("INSTALL httpfs;")
+        conn.execute("LOAD httpfs;")
+        conn.execute(f"""
+            CREATE SECRET (
+                TYPE GCS,
+                PROVIDER config,
+                BEARER_TOKEN '{token}'
+            )
+        """)  
         # 1. Cargar datos y crear tabla sql
-        conn = create_sql_table_from_parquet(DATA_PATH_OPT, SQL_TABLE_NAME)
+        conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_OPT, SQL_TABLE_NAME)
   
         # 2. Ejecutar optimización
         study = optimizar(conn, SQL_TABLE_NAME, n_trials=50)

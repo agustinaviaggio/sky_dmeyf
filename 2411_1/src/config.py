@@ -14,7 +14,7 @@ try:
 
         STUDY_NAME = _cfgGeneral["STUDY_NAME"]
         DATA_PATH_OPT = _cfg["DATA_PATH_OPT"]
-        #BUCKET_NAME = _cfg["BUCKET_NAME"]
+        BUCKET_NAME = _cfg["BUCKET_NAME"]
         SQL_TABLE_NAME = _cfg['SQL_TABLE_NAME']
         SEMILLAS = _cfg["SEMILLAS"]
         

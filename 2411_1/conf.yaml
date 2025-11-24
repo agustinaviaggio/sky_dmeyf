@@ -5,8 +5,9 @@
 STUDY_NAME: "2411_1"
 
 configuracion:
-    DATA_PATH_OPT: "~/data/competencia_02_FE_v4.parquet"
-    #BUCKET_NAME: "~/buckets/b1/"
+    DATA_PATH_OPT: "gs://sra_electron_bukito3/datasets/competencia_03_FE_v4.parquet"
+    BUCKET_NAME: "gs://sra_electron_bukito3/"
+    
     SQL_TABLE_NAME: "tabla_sql"
     SEMILLAS: [600011, 600043, 600053, 600071, 600073,
             600091, 600107, 600109, 600113, 600137,
