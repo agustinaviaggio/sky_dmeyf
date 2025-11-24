@@ -33,7 +33,7 @@ configuracion:
     # Time Series Cross Validation
     N_SPLITS: 5
     CV_STRATEGY: "expanding"
-    MIN_TRAIN_SIZE: 12  
+    MIN_TRAIN_SIZE: 14
     VALIDATION_SIZE: 1
     GAP: 0
     UNDERSAMPLING_RATIO: 0.075
