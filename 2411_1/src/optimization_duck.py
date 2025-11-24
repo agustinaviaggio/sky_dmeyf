@@ -759,6 +759,7 @@ def sincronizar_db_con_gcs(conn_duckdb):
     db_file = os.path.join(local_db_dir, f"{STUDY_NAME}.db")
     
     if not os.path.exists(db_file):
+        logger.warning(f"No se encontró DB local: {db_file}")
         return
     
     gcs_path = f"{BUCKET_NAME}optuna_db/{STUDY_NAME}.db"
@@ -774,7 +775,8 @@ def sincronizar_db_con_gcs(conn_duckdb):
         
     except Exception as e:
         logger.warning(f"Error al sincronizar: {e}")
-
+        import traceback
+        logger.warning(traceback.format_exc())
 # Uso
 if __name__ == "__main__":
     # Conectar a DuckDB
