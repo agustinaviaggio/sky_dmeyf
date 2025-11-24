@@ -2,7 +2,8 @@ import logging
 from datetime import datetime
 import os
 import duckdb
-from src.features import generar_targets, save_sql_table_to_parquet
+from src.features import save_sql_table_to_parquet
+from src.features_v4 import generar_targets
 from src.config import *
 
 ### Configuración de logging ###

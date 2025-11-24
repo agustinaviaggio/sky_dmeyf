@@ -326,38 +326,77 @@ def target_ternario(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.
 def generar_targets(conn: duckdb.DuckDBPyConnection, table_name: str) -> duckdb.DuckDBPyConnection:
     """
     Genera target_binario y target_ternario en UNA SOLA pasada.
+    Optimizado con tablas temporales para evitar problemas de memoria.
     """
     logger.info(f"Generando targets para tabla {table_name}")
     
-    sql = f"""
-        CREATE OR REPLACE TABLE {table_name} AS
+    # Paso 1: Crear grid completo (todos los clientes x todos los periodos)
+    logger.info("Paso 1: Creando grid cliente-periodo...")
+    sql_grid = f"""
+        CREATE TEMP TABLE IF NOT EXISTS temp_grid AS
         WITH periodos AS (
             SELECT DISTINCT foto_mes FROM {table_name}
         ), clientes AS (
             SELECT DISTINCT numero_de_cliente FROM {table_name}
-        ), todo AS (
-            SELECT numero_de_cliente, foto_mes 
-            FROM clientes CROSS JOIN periodos
-        ), con_flags AS (
-            SELECT
-                c.*,
-                IF(c.numero_de_cliente IS NULL, 0, 1) AS mes_0,
-                LEAD(IF(c.numero_de_cliente IS NULL, 0, 1), 1) 
-                    OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_1,
-                LEAD(IF(c.numero_de_cliente IS NULL, 0, 1), 2) 
-                    OVER (PARTITION BY t.numero_de_cliente ORDER BY foto_mes) AS mes_2
-            FROM todo t
-            LEFT JOIN {table_name} c USING (numero_de_cliente, foto_mes)
-        ) 
+        )
+        SELECT numero_de_cliente, foto_mes 
+        FROM clientes CROSS JOIN periodos
+    """
+    conn.execute(sql_grid)
+    
+    # Paso 2: Left join con datos originales y calcular leads
+    # CRÍTICO: Esto replica exactamente la lógica original
+    logger.info("Paso 2: Calculando flags de presencia y leads...")
+    sql_leads = f"""
+        CREATE TEMP TABLE IF NOT EXISTS temp_with_leads AS
+        SELECT
+            t.numero_de_cliente,
+            t.foto_mes,
+            IF(c.numero_de_cliente IS NULL, 0, 1) AS mes_0,
+            LEAD(IF(c.numero_de_cliente IS NULL, 0, 1), 1) 
+                OVER (PARTITION BY t.numero_de_cliente ORDER BY t.foto_mes) AS mes_1,
+            LEAD(IF(c.numero_de_cliente IS NULL, 0, 1), 2) 
+                OVER (PARTITION BY t.numero_de_cliente ORDER BY t.foto_mes) AS mes_2
+        FROM temp_grid t
+        LEFT JOIN {table_name} c USING (numero_de_cliente, foto_mes)
+    """
+    conn.execute(sql_leads)
+    
+    # Paso 3: Calcular targets (solo para registros donde mes_0 = 1)
+    logger.info("Paso 3: Calculando targets...")
+    sql_targets = f"""
+        CREATE TEMP TABLE IF NOT EXISTS temp_targets AS
         SELECT 
-            * EXCLUDE (mes_0, mes_1, mes_2),
+            numero_de_cliente,
+            foto_mes,
             IF(mes_1 = 0, 1, IF(mes_2 = 0, 1, 0)) AS target_binario,
             IF(mes_1 = 0, 0, IF(mes_2 = 0, 1, 0)) AS target_ternario
-        FROM con_flags
+        FROM temp_with_leads
         WHERE mes_0 = 1
     """
-
-    conn.execute(sql)
+    conn.execute(sql_targets)
+    
+    # Paso 4: Join con tabla original (solo registros que existen)
+    logger.info("Paso 4: Uniendo targets con datos originales...")
+    sql_final = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        SELECT 
+            c.*,
+            t.target_binario,
+            t.target_ternario
+        FROM {table_name} c
+        JOIN temp_targets t 
+        ON c.numero_de_cliente = t.numero_de_cliente 
+        AND c.foto_mes = t.foto_mes
+    """
+    conn.execute(sql_final)
+    
+    # Limpiar tablas temporales
+    logger.info("Limpiando tablas temporales...")
+    conn.execute("DROP TABLE IF EXISTS temp_grid")
+    conn.execute("DROP TABLE IF EXISTS temp_with_leads")
+    conn.execute("DROP TABLE IF EXISTS temp_targets")
+    
     logger.info(f"Targets generados exitosamente")
     return conn
 
