@@ -81,7 +81,7 @@ def checkpoint_exists(conn, checkpoint_path):
     except Exception as e:
         logger.info(f"Checkpoint no existe: {checkpoint_path}")
         return False
-    
+
 ### Main ###
 def main():
     """Pipeline principal con optimización usando configuración YAML."""
@@ -127,9 +127,14 @@ def main():
 
         # Definir path del checkpoint ANTES de active_quarter
         checkpoint_before_active = OUTPUT_PATH_FE.replace('.parquet', '_checkpoint_before_active_quarter.parquet')
+        checkpoint_after_active = OUTPUT_PATH_FE.replace('.parquet', '_checkpoint_after_active_quarter.parquet')
+        checkpoint_after_trends = OUTPUT_PATH_FE.replace('.parquet', '_checkpoint_after_trends.parquet')
+        checkpoint_after_accel = OUTPUT_PATH_FE.replace('.parquet', '_checkpoint_after_accel.parquet')
+        checkpoint_after_momentum = OUTPUT_PATH_FE.replace('.parquet', '_checkpoint_after_momentum.parquet')
+        checkpoint_after_streaks = OUTPUT_PATH_FE.replace('.parquet', '_checkpoint_after_streaks.parquet')
         
         # ========================================================
-        # VERIFICAR SI EXISTE CHECKPOINT
+        # VERIFICAR SI EXISTE CHECKPOINT USANDO DUCKDB
         # ========================================================
         if checkpoint_exists(conn, checkpoint_before_active):
             logger.info("=== CHECKPOINT ENCONTRADO - SALTANDO PASOS ANTERIORES ===")
@@ -491,41 +496,133 @@ def main():
         # ========================================================
         # CREAR active_quarter (CON MEMORIA LIMPIA)
         # ========================================================
-        logger.info("=== CREANDO active_quarter (DESPUES DE CHECKPOINT) ===")
-        conn = create_active_quarter_feature(conn, SQL_TABLE_NAME)
         
-        # Continuar con el resto
-        vars_criticas_trend = [
-            'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc', 'cproductos',
-            'transacciones_digitales_total', 'payroll_monto_total', 'inversiones_monto_total',
-            'endeudamiento_total', 'margen_total',
-            'cuentas_total', 'seguros_total', 'diversificacion_productos',
-            'actividad_transaccional', 'actividad_inversora', 'comisiones_monto_total'
-        ]
+        # Verificar si ya pasamos por active_quarter
+        if checkpoint_exists(conn, checkpoint_after_active):
+            logger.info("=== CHECKPOINT DESPUÉS DE active_quarter ENCONTRADO - SALTANDO ===")
+            load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_active)
+        else:
+            logger.info("=== CREANDO active_quarter (DESPUES DE CHECKPOINT) ===")
+            conn = create_active_quarter_feature(conn, SQL_TABLE_NAME)
+            
+            # Guardar checkpoint DESPUÉS de active_quarter
+            logger.info("=== GUARDANDO CHECKPOINT DESPUÉS DE active_quarter ===")
+            save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_active)
+            
+            logger.info("=== LIBERANDO MEMORIA DESPUÉS DE active_quarter ===")
+            gc.collect()
+        
+        # ========================================================
+        # TRENDS - CON CHECKPOINT
+        # ========================================================
+        if checkpoint_exists(conn, checkpoint_after_trends):
+            logger.info("=== CHECKPOINT DESPUÉS DE TRENDS ENCONTRADO - SALTANDO ===")
+            load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_trends)
+        else:
+            logger.info("=== CREANDO TRENDS ===")
+            # Continuar con el resto
+            vars_criticas_trend = [
+                'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc', 'cproductos',
+                'transacciones_digitales_total', 'payroll_monto_total', 'inversiones_monto_total',
+                'endeudamiento_total', 'margen_total',
+                'cuentas_total', 'seguros_total', 'diversificacion_productos',
+                'actividad_transaccional', 'actividad_inversora', 'comisiones_monto_total'
+            ]
 
-        ratios_trend = [
-            'ratio_endeudamiento_vs_saldo', 'ratio_consumo_tc_vs_limite', 
-            'ratio_pagos_vs_consumo_tc', 'ratio_inversiones_vs_saldo'
-        ]
+            ratios_trend = [
+                'ratio_endeudamiento_vs_saldo', 'ratio_consumo_tc_vs_limite', 
+                'ratio_pagos_vs_consumo_tc', 'ratio_inversiones_vs_saldo'
+            ]
 
-        conn = create_trend_features(conn, SQL_TABLE_NAME, vars_criticas_trend + ratios_trend, window=4)
+            conn = create_trend_features(conn, SQL_TABLE_NAME, vars_criticas_trend + ratios_trend, window=4)
+            
+            logger.info("=== GUARDANDO CHECKPOINT DESPUÉS DE TRENDS ===")
+            save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_trends)
+            gc.collect()
 
-        vars_criticas_accel = [
-            'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc', 'cproductos',
-            'transacciones_digitales_total', 'payroll_monto_total'
-        ]
+        # ========================================================
+        # ACCELERATION - CON CHECKPOINT
+        # ========================================================
+        if checkpoint_exists(conn, checkpoint_after_accel):
+            logger.info("=== CHECKPOINT DESPUÉS DE ACCELERATION ENCONTRADO - SALTANDO ===")
+            load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_accel)
+        else:
+            logger.info("=== CREANDO ACCELERATION ===")
+            vars_criticas_accel = [
+                'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc', 'cproductos',
+                'transacciones_digitales_total', 'payroll_monto_total'
+            ]
 
-        conn = create_acceleration_features(conn, SQL_TABLE_NAME, vars_criticas_accel)
+            conn = create_acceleration_features(conn, SQL_TABLE_NAME, vars_criticas_accel)
+            
+            logger.info("=== GUARDANDO CHECKPOINT DESPUÉS DE ACCELERATION ===")
+            save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_accel)
+            gc.collect()
 
-        vars_momentum = [
-            'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc',
-            'transacciones_digitales_total', 'inversiones_monto_total',
-            'payroll_monto_total', 'cproductos'
-        ]
+        # ========================================================
+        # MOMENTUM - CON CHECKPOINT
+        # ========================================================
+        if checkpoint_exists(conn, checkpoint_after_momentum):
+            logger.info("=== CHECKPOINT DESPUÉS DE MOMENTUM ENCONTRADO - SALTANDO ===")
+            load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_momentum)
+        else:
+            logger.info("=== CREANDO MOMENTUM ===")
+            vars_momentum = [
+                'mrentabilidad', 'mcuentas_saldo', 'mconsumototal_tc',
+                'transacciones_digitales_total', 'inversiones_monto_total',
+                'payroll_monto_total', 'cproductos'
+            ]
 
-        conn = create_momentum_features(conn, SQL_TABLE_NAME, vars_momentum, recent_window=2, past_start=2, past_end=5)
+            conn = create_momentum_features(conn, SQL_TABLE_NAME, vars_momentum, recent_window=2, past_start=2, past_end=5)
+            
+            logger.info("=== GUARDANDO CHECKPOINT DESPUÉS DE MOMENTUM ===")
+            save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_momentum)
+            gc.collect()
 
-        logger.info("=== CREANDO STREAKS ===")
+        # ========================================================
+        # STREAKS - CON CHECKPOINT
+        # ========================================================
+        if checkpoint_exists(conn, checkpoint_after_streaks):
+            logger.info("=== CHECKPOINT DESPUÉS DE STREAKS ENCONTRADO - SALTANDO ===")
+            load_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_streaks)
+        else:
+            logger.info("=== CREANDO STREAKS ===")
+            
+            conditions_streaks = [
+                'flag_rentabilidad_negativa = 1',
+                'flag_saldo_decreciente = 1',
+                'flag_sin_consumo_tc = 1',
+                'flag_sin_transacciones_digital = 1',
+                'flag_inactivo = 1',
+                'flag_perdiendo_productos = 1',
+                'flag_sin_payroll = 1',
+                'flag_tc_en_cierre = 1',
+                'flag_endeudamiento_creciente = 1',
+                'flag_desinvirtiendo = 1'
+            ]
+
+            output_names_streaks = [
+                'streak_rentabilidad_negativa_3m',
+                'streak_saldo_decreciente_3m',
+                'streak_sin_consumo_tc_3m',
+                'streak_sin_transacciones_digital_3m',
+                'streak_inactivo_3m',
+                'streak_perdiendo_productos_3m',
+                'streak_sin_payroll_3m',
+                'streak_tc_en_cierre_3m',
+                'streak_endeudamiento_creciente_3m',
+                'streak_desinvirtiendo_3m'
+            ]
+
+            conn = create_streak_features(conn, SQL_TABLE_NAME, conditions_streaks, output_names_streaks, window=3)
+            
+            logger.info("=== GUARDANDO CHECKPOINT DESPUÉS DE STREAKS ===")
+            save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_streaks)
+            gc.collect()
+
+        # ========================================================
+        # TIME_SINCE - SIN CHECKPOINT (ES EL ÚLTIMO PASO)
+        # ========================================================
         
         conditions_streaks = [
             'flag_rentabilidad_negativa = 1',
