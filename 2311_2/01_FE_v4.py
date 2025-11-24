@@ -543,7 +543,7 @@ def main():
             logger.info("=== LIBERANDO MEMORIA ANTES DE active_quarter ===")
             gc.collect()
         
-# ========================================================
+        # ========================================================
         # ACTIVE_QUARTER
         # ========================================================
         if not skip_to_trends:
