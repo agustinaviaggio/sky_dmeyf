@@ -1,4 +1,66 @@
-import duckdb
+def evaluar_ensemble_peso_fijo(cp, data_eval):
+    """
+    Evalúa ensemble con peso fijo por modelo basado en confianza promedio.
+    """
+    logger.info("=== EVALUANDO ENSEMBLE CON PESO FIJO POR MODELO ===")
+    
+    # Primero calcular confianza de cada modelo en calibración
+    logger.info("Calculando confianza de cada modelo en calibración...")
+    
+    confidences_per_model = []
+    
+    for i, model in enumerate(cp.models):
+        # Predecir en calibración
+        probs_cal = model.predict(data_eval['X_cal'])
+        
+        # Calcular nonconformity scores
+        scores = np.array([
+            1 - probs_cal[j] if data_eval['y_cal'][j] == 1 else probs_cal[j]
+            for j in range(len(data_eval['y_cal']))
+        ])
+        
+        # Confianza promedio = 1 - alpha_promedio
+        # Alpha es el percentil del score en calibración
+        alpha_promedio = np.mean([np.mean(cp.calibration_scores >= s) for s in scores[:100]])  # sample para eficiencia
+        confidence = 1 - alpha_promedio
+        
+        confidences_per_model.append(confidence)
+        logger.info(f"Modelo {i+1}: confianza={confidence:.4f}")
+    
+    # Normalizar pesos
+    weights = np.array(confidences_per_model)
+    weights = weights / weights.sum()
+    
+    logger.info(f"Pesos normalizados - min: {weights.min():.4f}, max: {weights.max():.4f}, std: {weights.std():.4f}")
+    
+    # Predecir en evaluación con pesos
+    all_probs = []
+    for model in cp.models:
+        probs = model.predict(data_eval['X_eval'])
+        all_probs.append(probs)
+    
+    probs_matrix = np.array(all_probs)
+    probs_weighted = np.average(probs_matrix, axis=0, weights=weights)
+    
+    # Encontrar threshold óptimo
+    threshold_opt, ganancia_max, envios_opt = encontrar_threshold_optimo(
+        data_eval['y_eval_ternario'],
+        probs_weighted
+    )
+    
+    logger.info(f"Threshold óptimo: {threshold_opt:.6f}")
+    logger.info(f"Ganancia máxima: {ganancia_max:,.0f}")
+    logger.info(f"Envíos óptimos: {envios_opt:,} ({envios_opt/len(probs_weighted)*100:.2f}%)")
+    
+    return {
+        'strategy': 'peso_fijo',
+        'threshold': float(threshold_opt),
+        'ganancia': float(ganancia_max),
+        'envios': int(envios_opt),
+        'porcentaje_envios': float(envios_opt / len(probs_weighted) * 100),
+        'weights': weights.tolist(),
+        'probs': probs_weighted
+    }import duckdb
 import logging
 import numpy as np
 import pickle
@@ -355,9 +417,10 @@ def encontrar_threshold_optimo(y_true, y_pred_proba):
     """
     Encuentra el threshold que maximiza la ganancia.
     """
-    # Ordenar por probabilidad
+    # Ordenar por probabilidad descendente
     sorted_indices = np.argsort(y_pred_proba)[::-1]
     y_true_sorted = y_true[sorted_indices]
+    proba_sorted = y_pred_proba[sorted_indices]  # CORRECCIÓN: ordenar las probabilidades
     
     # Calcular ganancia acumulada
     ganancias_individuales = np.where(
@@ -371,8 +434,12 @@ def encontrar_threshold_optimo(y_true, y_pred_proba):
     # Encontrar máximo
     idx_max = np.argmax(ganancia_acumulada)
     ganancia_max = ganancia_acumulada[idx_max]
-    threshold_optimo = y_pred_proba[sorted_indices[idx_max]]
+    threshold_optimo = proba_sorted[idx_max]  # CORRECCIÓN: usar proba_sorted
     envios_optimos = idx_max + 1
+    
+    # Log adicional
+    logger.info(f"Ganancia en threshold 0.025: {ganancia_acumulada[np.sum(proba_sorted >= 0.025)-1] if np.sum(proba_sorted >= 0.025) > 0 else 0:,.0f} "
+               f"con {np.sum(proba_sorted >= 0.025):,} envíos")
     
     return threshold_optimo, ganancia_max, envios_optimos
 
@@ -543,21 +610,28 @@ def evaluar_ensemble_peso_dinamico(cp, data_eval):
 
 def guardar_resultados(models, feature_cols, resultados, best_params, best_iteration):
     """
-    Guarda modelos y resultados primero localmente y luego sincroniza con GCS.
+    Guarda modelos y resultados localmente y luego sincroniza con GCS.
     """
     logger.info("=== GUARDANDO RESULTADOS ===")
     
     # Crear carpeta local temporal
-    local_path = os.path.expanduser("~/modelos_conformal_temp")
+    local_path = os.path.expanduser("~/temp_conformal_output")
     os.makedirs(local_path, exist_ok=True)
     
-    # Guardar modelos individuales
+    # Crear subcarpetas
+    modelos_path = os.path.join(local_path, "modelos")
+    resultados_path = os.path.join(local_path, "resultados")
+    
+    os.makedirs(modelos_path, exist_ok=True)
+    os.makedirs(resultados_path, exist_ok=True)
+    
+    # 1. Guardar modelos individuales
     for i, (model, semilla) in enumerate(zip(models, SEMILLAS)):
-        archivo_modelo = os.path.join(local_path, f"{STUDY_NAME}_conformal_seed_{semilla}.txt")
+        archivo_modelo = os.path.join(modelos_path, f"{STUDY_NAME}_conformal_seed_{semilla}.txt")
         model.save_model(archivo_modelo)
         logger.info(f"Modelo {i+1}/{len(models)} guardado localmente")
     
-    # Guardar ensemble completo
+    # 2. Guardar ensemble completo
     ensemble_data = {
         'models': models,
         'feature_cols': feature_cols,
@@ -567,12 +641,12 @@ def guardar_resultados(models, feature_cols, resultados, best_params, best_itera
         'datetime': datetime.now().isoformat()
     }
     
-    archivo_ensemble = os.path.join(local_path, f"{STUDY_NAME}_conformal_ensemble.pkl")
+    archivo_ensemble = os.path.join(modelos_path, f"{STUDY_NAME}_conformal_ensemble.pkl")
     with open(archivo_ensemble, 'wb') as f:
         pickle.dump(ensemble_data, f)
     logger.info(f"Ensemble guardado localmente: {archivo_ensemble}")
     
-    # Guardar resultados de evaluación
+    # 3. Guardar resultados de evaluación
     resultados_completos = {
         'study_name': STUDY_NAME,
         'configuracion': {
@@ -589,13 +663,13 @@ def guardar_resultados(models, feature_cols, resultados, best_params, best_itera
         'datetime': datetime.now().isoformat()
     }
     
-    archivo_resultados = os.path.join(local_path, f"{STUDY_NAME}_conformal_results.json")
+    archivo_resultados = os.path.join(resultados_path, f"{STUDY_NAME}_conformal_results.json")
     with open(archivo_resultados, 'w') as f:
         # Convertir arrays numpy a listas para JSON
         resultados_json = resultados_completos.copy()
         for estrategia in resultados_json['resultados_por_estrategia']:
             if 'probs' in estrategia:
-                del estrategia['probs']  # No guardar todas las probabilidades
+                del estrategia['probs']
             if 'confidences_matrix' in estrategia:
                 del estrategia['confidences_matrix']
         
@@ -603,9 +677,9 @@ def guardar_resultados(models, feature_cols, resultados, best_params, best_itera
     
     logger.info(f"Resultados guardados localmente: {archivo_resultados}")
     
-    # Sincronizar con GCS
+    # 4. Sincronizar TODO con GCS
     logger.info("Sincronizando con GCS...")
-    gcs_path = f'{BUCKET_NAME}modelos_conformal/'
+    gcs_path = f'{BUCKET_NAME}conformal_output/'
     
     try:
         subprocess.run(

@@ -2,7 +2,6 @@ import json
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 from pathlib import Path
 import subprocess
 import os
@@ -20,7 +19,7 @@ def descargar_desde_gcs():
     local_path = os.path.expanduser("~/resultados_conformal")
     os.makedirs(local_path, exist_ok=True)
     
-    gcs_path = f"{BUCKET_NAME}modelos_conformal/"
+    gcs_path = f"{BUCKET_NAME}conformal_output/"
     
     try:
         subprocess.run(
@@ -38,7 +37,7 @@ def cargar_resultados(local_path):
     """
     Carga el archivo JSON con los resultados.
     """
-    archivo_json = Path(local_path) / f"{STUDY_NAME}_conformal_results.json"
+    archivo_json = Path(local_path) / "resultados" / f"{STUDY_NAME}_conformal_results.json"
     
     if not archivo_json.exists():
         print(f"No se encontró {archivo_json}")
@@ -284,6 +283,24 @@ def main():
     
     # 5. Análisis de pesos
     analizar_pesos_fijos(resultados)
+    
+    # 6. Subir TODO (incluyendo gráficos) al bucket
+    print("\n" + "="*80)
+    print("SUBIENDO RESULTADOS Y GRÁFICOS A GCS")
+    print("="*80)
+    
+    gcs_path = f"{BUCKET_NAME}conformal_output/"
+    
+    try:
+        subprocess.run(
+            ['gsutil', '-m', 'rsync', '-r', local_path, gcs_path],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        print(f"✓ TODO sincronizado con GCS: {gcs_path}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error subiendo a GCS: {e}")
     
     print("\n✓ Análisis completado")
 
