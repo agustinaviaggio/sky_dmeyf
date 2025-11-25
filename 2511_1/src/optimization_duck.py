@@ -114,7 +114,7 @@ def objetivo_ganancia(trial, conn, tabla: str, cv_splits: list) -> float:
         
         # Preparar features
         feature_cols = [col for col in train_data.keys() 
-                       if col not in ['target_binario', 'target_ternario']]
+                       if col not in ['target_binario', 'target_ternario', 'foto_mes']]
         
         X_train = np.column_stack([train_data[col] for col in feature_cols])
         y_train = train_data['target_binario']
@@ -561,7 +561,7 @@ def entrenar_y_guardar_modelos_finales(conn, tabla: str, study: optuna.Study):
     
     # Preparar features
     feature_cols = [col for col in train_data.keys() 
-                    if col not in ['target_binario', 'target_ternario']]
+                    if col not in ['target_binario', 'target_ternario', 'foto_mes']]
     
     X_train = np.column_stack([train_data[col] for col in feature_cols])
     y_train = train_data['target_binario']
