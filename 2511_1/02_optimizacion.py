@@ -97,7 +97,7 @@ def main():
             SQL_TABLE_NAME, 
             study, 
             MES_TEST_1,
-            es_test_final=False
+            es_test_2=False
         )
         guardar_resultados_test(resultados_test, MES_TEST_1)
         logger.info("=== RESUMEN DE EVALUACIÓN EN TEST 1 ===")
@@ -110,7 +110,7 @@ def main():
             SQL_TABLE_NAME, 
             study, 
             MES_TEST_2,
-            es_test_final=True
+            es_test_2=True
         )
         guardar_resultados_test(resultados_test, MES_TEST_2)
         logger.info("=== RESUMEN DE EVALUACIÓN EN TEST 2 ===")
