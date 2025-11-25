@@ -169,7 +169,7 @@ def imprimir_resumen(resultados):
     print(f"  Study: {resultados['study_name']}")
     print(f"  Períodos train: {config['periodos_train'][0]} a {config['periodos_train'][-1]} ({len(config['periodos_train'])} meses)")
     print(f"  Calibración: {config['mes_calibracion']}")
-    print(f"  Evaluación: {config['mes_evaluacion']}")
+    print(f"  Test: {config['mes_test']}")
     print(f"  Undersampling: {config['undersampling_ratio']*100}%")
     print(f"  Modelos: {config['n_modelos']}")
     
