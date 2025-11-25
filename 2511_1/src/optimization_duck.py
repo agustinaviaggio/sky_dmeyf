@@ -748,10 +748,12 @@ def generar_time_series_splits(periodos: list, n_splits: int,
     
     return splits
 
-def sincronizar_db_con_gcs(conn_duckdb):
+def sincronizar_db_con_gcs(conn_duckdb=None):
     """
-    Actualiza la DB en GCS usando la conexión DuckDB ya autenticada.
+    Actualiza la DB en GCS usando gsutil.
     """
+    import subprocess
+    
     local_db_dir = os.path.expanduser("~/optuna_db")
     db_file = os.path.join(local_db_dir, f"{STUDY_NAME}.db")
     
@@ -762,25 +764,17 @@ def sincronizar_db_con_gcs(conn_duckdb):
     gcs_path = f"{BUCKET_NAME}optuna_db/{STUDY_NAME}.db"
     
     try:
-        # Usar la conexión que YA está autenticada
-        conn_duckdb.execute(f"""
-            COPY (SELECT * FROM read_blob('{db_file}')) 
-            TO '{gcs_path}'
-        """)
+        result = subprocess.run(
+            ['gsutil', 'cp', db_file, gcs_path],
+            capture_output=True,
+            text=True,
+            check=True
+        )
         
-        logger.info(f"✓ DB actualizada en GCS")
+        file_size = os.path.getsize(db_file)
+        logger.info(f"✓ DB actualizada en GCS ({file_size:,} bytes)")
         
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Error al sincronizar con gsutil: {e.stderr}")
     except Exception as e:
         logger.warning(f"Error al sincronizar: {e}")
-        import traceback
-        logger.warning(traceback.format_exc())
-# Uso
-if __name__ == "__main__":
-    # Conectar a DuckDB
-    conn = duckdb.connect('mi_database.duckdb', read_only=True)
-    
-    # Optimizar
-    study = optimizar(conn, tabla='dataset_competencia', n_trials=100)
-    
-    # Cerrar conexión
-    conn.close()
