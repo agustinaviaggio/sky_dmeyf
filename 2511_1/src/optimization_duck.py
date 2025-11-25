@@ -785,3 +785,30 @@ def sincronizar_db_con_gcs(conn_duckdb=None):
         logger.warning(f"Error al sincronizar con gsutil: {e.stderr}")
     except Exception as e:
         logger.warning(f"Error al sincronizar: {e}")
+
+def sincronizar_resultados_con_gcs():
+    """
+    Sube todos los resultados locales a GCS.
+    """
+    import subprocess
+    
+    archivos_a_subir = [
+        ('resultados/', f'{BUCKET_NAME}resultados/'),
+        (os.path.expanduser(BUCKET_NAME) + 'modelos_finales/', f'{BUCKET_NAME}modelos_finales/'),
+        (os.path.expanduser(BUCKET_NAME) + 'resultados_test/', f'{BUCKET_NAME}resultados_test/')
+    ]
+    
+    for local_path, gcs_path in archivos_a_subir:
+        if os.path.exists(local_path):
+            try:
+                result = subprocess.run(
+                    ['gsutil', '-m', 'rsync', '-r', local_path, gcs_path],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                logger.info(f"✓ Sincronizado: {local_path} -> {gcs_path}")
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Error sincronizando {local_path}: {e.stderr}")
+            except Exception as e:
+                logger.warning(f"Error: {e}")

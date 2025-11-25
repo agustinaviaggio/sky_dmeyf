@@ -4,13 +4,7 @@ from datetime import datetime
 import os
 
 from src.features import create_sql_table_from_parquet_csv
-from src.optimization_duck import (
-    optimizar, 
-    evaluar_en_test, 
-    guardar_resultados_test,
-    entrenar_y_guardar_modelos_finales,
-    sincronizar_db_con_gcs
-)
+from src.optimization_duck import *
 from src.config import *
 
 ### Configuración de logging ###
@@ -67,7 +61,7 @@ def main():
         conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_OPT, SQL_TABLE_NAME)
   
         # 2. Ejecutar optimización
-        study = optimizar(conn, SQL_TABLE_NAME, n_trials=5)
+        study = optimizar(conn, SQL_TABLE_NAME, n_trials=50)
     
         # 3. Análisis adicional
         logger.info("=== ANÁLISIS DE RESULTADOS ===")
@@ -127,6 +121,9 @@ def main():
         # 7. SINCRONIZAR BASE DE DATOS CON GCS
         logger.info("=== SINCRONIZANDO BASE DE DATOS CON GCS ===")
         sincronizar_db_con_gcs(conn)
+
+        logger.info("=== SINCRONIZANDO RESULTADOS Y MODELOS CON GCS ===")
+        sincronizar_resultados_con_gcs()
 
     except Exception as e:
         logger.error(f"Error durante la ejecución del pipeline: {e}")
