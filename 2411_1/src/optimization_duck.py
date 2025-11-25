@@ -1,5 +1,3 @@
-# optimization_duck.py - Versión completa con NumPy
-
 import optuna
 import gc
 import lightgbm as lgb
@@ -748,8 +746,6 @@ def generar_time_series_splits(periodos: list, n_splits: int,
         logger.info(f"Split {i+1}: Train={train_periods}, Val={val_periods}")
     
     return splits
-
-import duckdb
 
 def sincronizar_db_con_gcs(conn_duckdb):
     """
