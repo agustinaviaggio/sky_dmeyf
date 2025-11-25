@@ -783,38 +783,3 @@ if __name__ == "__main__":
     
     # Cerrar conexión
     conn.close()
-
-def sincronizar_db_con_gcs():
-    """
-    Sube la base de datos de Optuna a GCS después de cada trial.
-    """
-    local_db_dir = os.path.expanduser("~/optuna_db")
-    db_file = os.path.join(local_db_dir, f"{STUDY_NAME}.db")
-    
-    if not os.path.exists(db_file):
-        logger.warning(f"No se encontró DB local: {db_file}")
-        return
-    
-    # Ruta en GCS
-    gcs_path = f"{BUCKET_NAME}optuna_db/{STUDY_NAME}.db"
-    
-    try:
-        import subprocess
-        
-        # Copiar archivo a GCS usando gsutil
-        result = subprocess.run(
-            ["gsutil", "-q", "cp", db_file, gcs_path],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        if result.returncode == 0:
-            logger.info(f"✓ DB sincronizada con GCS (Trial completado)")
-        else:
-            logger.warning(f"Advertencia al sincronizar: {result.stderr}")
-            
-    except subprocess.TimeoutExpired:
-        logger.warning("Timeout al sincronizar con GCS, continuando...")
-    except Exception as e:
-        logger.warning(f"Error al sincronizar DB con GCS: {e}")
