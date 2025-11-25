@@ -195,20 +195,46 @@ def guardar_iteracion(trial, ganancia, conn_duckdb, archivo_base=None):
     if archivo_base is None:
         archivo_base = STUDY_NAME
     
+    os.makedirs("resultados", exist_ok=True)
     archivo = f"resultados/{archivo_base}_iteraciones.json"
     
-    # ... TODO el código de guardar JSON (sin cambios) ...
+    # Cargar iteraciones existentes
+    if os.path.exists(archivo):
+        with open(archivo, 'r') as f:
+            try:
+                iteraciones = json.load(f)
+            except json.JSONDecodeError:
+                iteraciones = []
+    else:
+        iteraciones = []
+    
+    # Crear registro de esta iteración
+    iteracion = {
+        'trial_number': trial.number,
+        'ganancia': float(ganancia),
+        'params': trial.params,
+        'datetime': datetime.now().isoformat(),
+        'user_attrs': {k: v for k, v in trial.user_attrs.items()}
+    }
+    
+    iteraciones.append(iteracion)
+    
+    # Guardar todas las iteraciones
+    with open(archivo, 'w') as f:
+        json.dump(iteraciones, f, indent=2)
     
     logger.info(f"Iteración {trial.number} guardada en {archivo}")
     logger.info(f"Ganancia: {ganancia:,.0f} - Parámetros: {trial.params}")
     
-    # SINCRONIZAR DB CON GCS usando la conexión autenticada
+    # SINCRONIZAR DB CON GCS
     sincronizar_db_con_gcs(conn_duckdb)
 
 def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optuna.Study:
     """
     Crea un nuevo estudio de Optuna o carga uno existente.
     """
+    import subprocess
+    
     study_name = STUDY_NAME
   
     if semilla is None:
@@ -221,39 +247,20 @@ def crear_o_cargar_estudio(study_name: str = None, semilla: int = None) -> optun
     gcs_path = f"{BUCKET_NAME}optuna_db/{study_name}.db"
     storage = f"sqlite:///{db_file}"
     
-    # DESCARGAR DESDE GCS SI EXISTE
+    # DESCARGAR DESDE GCS SI EXISTE (con gsutil en lugar de DuckDB)
     try:
         logger.info(f"Buscando DB en GCS: {gcs_path}")
         
-        temp_conn = duckdb.connect(':memory:')
-        temp_conn.execute("INSTALL httpfs; LOAD httpfs;")
+        result = subprocess.run(
+            ['gsutil', 'cp', gcs_path, db_file],
+            capture_output=True,
+            text=True,
+            check=True
+        )
         
-        # REFRESCAR TOKEN
-        from google.auth import default
-        from google.auth.transport.requests import Request
-        
-        credentials, _ = default()
-        credentials.refresh(Request())
-        token = credentials.token
-        
-        temp_conn.execute(f"""
-            CREATE SECRET (
-                TYPE GCS,
-                PROVIDER config,
-                BEARER_TOKEN '{token}'
-            )
-        """)
-        
-        # Descargar desde GCS
-        temp_conn.execute(f"""
-            COPY (SELECT * FROM read_blob('{gcs_path}')) 
-            TO '{db_file}'
-        """)
-        
-        temp_conn.close()
         logger.info(f"✓ DB descargada desde GCS")
         
-    except Exception as e:
+    except subprocess.CalledProcessError as e:
         logger.info(f"No hay DB en GCS (normal en primera ejecución)")
     
     # CARGAR O CREAR ESTUDIO
