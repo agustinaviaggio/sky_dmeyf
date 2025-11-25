@@ -2,7 +2,7 @@
 # conf.yaml
 # ==========================================================
 
-STUDY_NAME: "2411_1"
+STUDY_NAME: "2511_1"
 
 configuracion:
     DATA_PATH_OPT: "gs://sra_electron_bukito3/datasets/competencia_03_FE_v4.parquet"
