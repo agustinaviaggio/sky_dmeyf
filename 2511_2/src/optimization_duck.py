@@ -518,14 +518,6 @@ def evaluar_en_test(conn, tabla: str, study: optuna.Study, mes_test: str,
 def entrenar_y_guardar_modelos_finales(conn, tabla: str, study: optuna.Study):
     """
     Entrena los modelos finales usando PERIODOS_TRAIN + MES_TEST_2 y los guarda.
-    
-    Args:
-        conn: Conexión a DuckDB
-        tabla: Nombre de la tabla
-        study: Estudio de Optuna con los mejores hiperparámetros
-    
-    Returns:
-        dict: Información del ensemble guardado
     """
     logger.info("=== ENTRENAMIENTO DE MODELOS FINALES ===")
     logger.info(f"Entrenando con PERIODOS_TRAIN + MES_TEST_2")
@@ -573,9 +565,8 @@ def entrenar_y_guardar_modelos_finales(conn, tabla: str, study: optuna.Study):
     X_train = np.column_stack([train_data[col] for col in feature_cols])
     y_train = train_data['target_binario']
     
-    # Crear directorio para modelos
-    bucket_path = os.path.expanduser(BUCKET_NAME)
-    path_modelos = os.path.join(bucket_path, "modelos_finales")
+    # TODO EN EL DIRECTORIO LOCAL "modelos_finales/"
+    path_modelos = "modelos_finales"
     os.makedirs(path_modelos, exist_ok=True)
     
     models_finales = []
@@ -621,7 +612,7 @@ def entrenar_y_guardar_modelos_finales(conn, tabla: str, study: optuna.Study):
         
         models_finales.append(modelo)
         
-        # Guardar modelo individual en formato LightGBM nativo
+        # Guardar modelo individual
         archivo_modelo = os.path.join(path_modelos, f"{STUDY_NAME}_seed_{semilla}.txt")
         modelo.save_model(archivo_modelo)
         logger.info(f"Modelo guardado: {archivo_modelo}")
@@ -648,7 +639,7 @@ def entrenar_y_guardar_modelos_finales(conn, tabla: str, study: optuna.Study):
         json.dump(ensemble_info, f, indent=2)
     logger.info(f"Información del ensemble guardada: {archivo_ensemble_info}")
     
-    # Guardar también un pickle con todos los modelos (para carga rápida)
+    # Guardar también un pickle con todos los modelos
     archivo_ensemble_pkl = os.path.join(path_modelos, f"{STUDY_NAME}_ensemble.pkl")
     with open(archivo_ensemble_pkl, 'wb') as f:
         pickle.dump({
@@ -674,9 +665,8 @@ def guardar_resultados_test(resultados_test, mes_test, archivo_base=None):
     if archivo_base is None:
         archivo_base = STUDY_NAME
     
-    bucket_path = os.path.expanduser(BUCKET_NAME)
-
-    path_resultados = os.path.join(bucket_path, "resultados_test")
+    # TODO EN EL DIRECTORIO LOCAL "resultados_test/"
+    path_resultados = "resultados_test"
     os.makedirs(path_resultados, exist_ok=True)
 
     archivo_json = os.path.join(path_resultados, f"{archivo_base}_test_results.json")
@@ -686,7 +676,6 @@ def guardar_resultados_test(resultados_test, mes_test, archivo_base=None):
         with open(archivo_json, 'r') as f:
             try:
                 datos_existentes = json.load(f)
-                # Asegurarse de que sea una lista
                 if not isinstance(datos_existentes, list):
                     datos_existentes = [datos_existentes]
             except json.JSONDecodeError:
@@ -794,8 +783,8 @@ def sincronizar_resultados_con_gcs():
     
     archivos_a_subir = [
         ('resultados/', f'{BUCKET_NAME}resultados/'),
-        (os.path.expanduser(BUCKET_NAME) + 'modelos_finales/', f'{BUCKET_NAME}modelos_finales/'),
-        (os.path.expanduser(BUCKET_NAME) + 'resultados_test/', f'{BUCKET_NAME}resultados_test/')
+        ('modelos_finales/', f'{BUCKET_NAME}modelos_finales/'),
+        ('resultados_test/', f'{BUCKET_NAME}resultados_test/')
     ]
     
     for local_path, gcs_path in archivos_a_subir:
@@ -807,8 +796,10 @@ def sincronizar_resultados_con_gcs():
                     text=True,
                     check=True
                 )
-                logger.info(f"✓ Sincronizado: {local_path} -> {gcs_path}")
+                logger.info(f"✔ Sincronizado: {local_path} -> {gcs_path}")
             except subprocess.CalledProcessError as e:
                 logger.warning(f"Error sincronizando {local_path}: {e.stderr}")
             except Exception as e:
                 logger.warning(f"Error: {e}")
+        else:
+            logger.warning(f"⚠ Path local no existe: {local_path}")
