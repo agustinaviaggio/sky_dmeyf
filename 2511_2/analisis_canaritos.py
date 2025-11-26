@@ -19,7 +19,7 @@ from collections import Counter
 BUCKET_NAME = "gs://sra_electron_bukito3/"
 STUDY_NAME = "2511_2"
 SQL_TABLE_NAME = "dataset_competencia"
-DATA_PATH = "gs://sra_electron_bukito3/datasets/competencia_03.parquet"
+DATA_PATH = "gs://sra_electron_bukito3/datasets/competencia_03_FE_v4.parquet"
 PERIODOS_TRAIN = list(range(202101, 202107))  # Hasta 202106 inclusive
 N_CANARITOS = 10
 UNDERSAMPLING_RATIO = 0.1
