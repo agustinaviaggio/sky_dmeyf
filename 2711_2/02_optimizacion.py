@@ -47,8 +47,12 @@ def cargar_features_seleccionadas(umbral='90pct'):
     """
     logger.info(f"=== CARGANDO FEATURES SELECCIONADAS (umbral: {umbral}) ===")
     
-    # Listar archivos disponibles en GCS
-    gcs_pattern = f"{BUCKET_NAME}resultados/features_{umbral}_{STUDY_NAME}_*.json"
+    # Construir patrón de búsqueda según el umbral
+    if umbral == 'union':
+        # Para union, el archivo tiene otro formato
+        gcs_pattern = f"{BUCKET_NAME}resultados/union_features_{STUDY_NAME}_*.json"
+    else:
+        gcs_pattern = f"{BUCKET_NAME}resultados/features_{umbral}_{STUDY_NAME}_*.json"
     
     result = subprocess.run(
         ['gsutil', 'ls', gcs_pattern],
@@ -88,12 +92,19 @@ def cargar_features_seleccionadas(umbral='90pct'):
         with open(tmp_path, 'r') as f:
             data = json.load(f)
         
-        features = data['features']
-        total = data['total']
+        # Extraer features según el tipo de archivo
+        if umbral == 'union':
+            features = data['union_features']['lista_completa']
+            total = data['union_features']['total_features_en_union']
+            logger.info(f"✓ Features cargadas exitosamente (UNIÓN COMPLETA)")
+            logger.info(f"  Total de features: {total}")
+        else:
+            features = data['features']
+            total = data['total']
+            logger.info(f"✓ Features cargadas exitosamente")
+            logger.info(f"  Total de features: {total}")
+            logger.info(f"  Umbral: {data['umbral']}")
         
-        logger.info(f"✓ Features cargadas exitosamente")
-        logger.info(f"  Total de features: {total}")
-        logger.info(f"  Umbral: {data['umbral']}")
         logger.info(f"  Archivo: {archivo_mas_reciente.split('/')[-1]}")
         
         return features
