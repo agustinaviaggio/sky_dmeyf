@@ -156,7 +156,7 @@ def main():
         
         if features_seleccionadas is not None:
             logger.info("=== CARGANDO DATASET CON FEATURES SELECCIONADAS ===")
-            columnas_necesarias = ['target_binario', 'target_ternaria', 'foto_mes']
+            columnas_necesarias = ['target_binario', 'target_ternario', 'foto_mes']
             columnas_str = ', '.join(features_seleccionadas + columnas_necesarias)
             
             conn.execute(f"""
