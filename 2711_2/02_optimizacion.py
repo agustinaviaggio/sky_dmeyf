@@ -134,6 +134,7 @@ def main():
         
         # 1. Configurar DuckDB y GCS
         conn = duckdb.connect(database=':memory:')
+        conn.execute("SET temp_directory='/tmp'")
         
         # Configurar GCS
         from google.auth import default
@@ -153,35 +154,19 @@ def main():
             )
         """)  
         
-        # 2. Cargar datos y crear tabla SQL
-        conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_OPT, SQL_TABLE_NAME)
-        
-        # 3. Filtrar features si se cargaron
         if features_seleccionadas is not None:
-            logger.info("=== FILTRANDO DATASET CON FEATURES SELECCIONADAS ===")
-            
-            # Agregar columnas necesarias que no son features
-            columnas_necesarias = ['target_binario', 'target_ternario', 'foto_mes']
-            columnas_a_mantener = features_seleccionadas + columnas_necesarias
-            
-            # Crear tabla filtrada
-            columnas_str = ', '.join(columnas_a_mantener)
+            logger.info("=== CARGANDO DATASET CON FEATURES SELECCIONADAS ===")
+            columnas_necesarias = ['target_binario', 'target_ternaria', 'foto_mes']
+            columnas_str = ', '.join(features_seleccionadas + columnas_necesarias)
             
             conn.execute(f"""
-                CREATE TABLE {SQL_TABLE_NAME}_filtered AS
+                CREATE TABLE {SQL_TABLE_NAME} AS 
                 SELECT {columnas_str}
-                FROM {SQL_TABLE_NAME}
+                FROM read_parquet('{DATA_PATH_OPT}')
             """)
-            
-            # Reemplazar tabla original
-            conn.execute(f"DROP TABLE {SQL_TABLE_NAME}")
-            conn.execute(f"ALTER TABLE {SQL_TABLE_NAME}_filtered RENAME TO {SQL_TABLE_NAME}")
-            
-            logger.info(f"✓ Dataset filtrado: {len(features_seleccionadas)} features + {len(columnas_necesarias)} columnas auxiliares")
-            
-            # Verificar columnas finales
-            result = conn.execute(f"DESCRIBE {SQL_TABLE_NAME}").fetchall()
-            logger.info(f"  Columnas finales en tabla: {len(result)}")
+            logger.info(f"✓ Dataset cargado: {len(features_seleccionadas)} features")
+        else:
+            conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_OPT, SQL_TABLE_NAME)
         
         # 4. Ejecutar optimización
         study = optimizar(conn, SQL_TABLE_NAME, n_trials=150)
