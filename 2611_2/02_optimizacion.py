@@ -111,8 +111,7 @@ def main():
     conn = None
     try:
         # 0. CARGAR FEATURES SELECCIONADAS
-        # Puedes cambiar el umbral aquí: '100pct', '90pct', '80pct', '75pct', '50pct'
-        UMBRAL_FEATURES = '90pct'  # Recomendado para balance estabilidad/cobertura
+        UMBRAL_FEATURES = '50pct'
         
         try:
             features_seleccionadas = cargar_features_seleccionadas(umbral=UMBRAL_FEATURES)
