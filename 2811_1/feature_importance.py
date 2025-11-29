@@ -19,7 +19,7 @@ import tempfile
 
 # Configuración
 BUCKET_NAME = "gs://sra_electron_bukito3/"
-STUDY_NAME = "2511_2"
+STUDY_NAME = "2811_1"
 SQL_TABLE_NAME = "dataset_competencia"
 DATA_PATH = "gs://sra_electron_bukito3/datasets/competencia_03_FE_v2.parquet"
 
