@@ -96,16 +96,12 @@ def main():
         
         conn = duckdb.connect(database=':memory:')
         
-        # CONFIGURAR DUCKDB PARA USAR temp_dir
-        conn.execute(f"SET temp_directory='{temp_dir}'")
-        conn.execute("SET memory_limit='60GB'")
-        conn.execute("SET max_memory='60GB'")
-        conn.execute("SET max_temp_directory_size='45GB'")
-        conn.execute("SET threads=12")
+        conn.execute("SET temp_directory='/tmp/duckdb_temp'")
+        conn.execute("SET max_temp_directory_size='200GB'")
+        conn.execute("SET memory_limit='120GB'")
+        conn.execute("SET threads=8")
         conn.execute("SET preserve_insertion_order=false")
-        
-        logger.info(f"DuckDB configurado: temp_dir={temp_dir}, memory=60GB, threads=12")
-
+       
         # Configurar acceso a GCS
         from google.auth import default
         from google.auth.transport.requests import Request
