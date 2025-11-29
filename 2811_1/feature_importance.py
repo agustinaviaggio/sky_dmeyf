@@ -21,7 +21,7 @@ import tempfile
 BUCKET_NAME = "gs://sra_electron_bukito3/"
 STUDY_NAME = "2511_2"
 SQL_TABLE_NAME = "dataset_competencia"
-DATA_PATH = "gs://sra_electron_bukito3/datasets/competencia_03_FE_v4.parquet"
+DATA_PATH = "gs://sra_electron_bukito3/datasets/competencia_03_FE_v2.parquet"
 
 # Períodos de entrenamiento (todos los meses del conf.yaml)
 PERIODOS_TRAIN = [201901, 201902, 201903, 201904, 201906,
