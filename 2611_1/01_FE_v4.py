@@ -551,7 +551,7 @@ def main():
             conn = create_active_quarter_feature(conn, SQL_TABLE_NAME)
             
             logger.info("=== GUARDANDO CHECKPOINT DESPUES DE active_quarter ===")
-            save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_active)
+            #save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_active)
             gc.collect()
         
         # ========================================================
@@ -573,7 +573,7 @@ def main():
             conn = create_trend_features(conn, SQL_TABLE_NAME, vars_criticas_trend + ratios_trend, window=4)
             
             logger.info("=== GUARDANDO CHECKPOINT DESPUES DE TRENDS ===")
-            save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_trends)
+            #save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_trends)
             gc.collect()
 
         # ========================================================
@@ -588,7 +588,7 @@ def main():
             conn = create_acceleration_features(conn, SQL_TABLE_NAME, vars_criticas_accel)
             
             logger.info("=== GUARDANDO CHECKPOINT DESPUES DE ACCELERATION ===")
-            save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_accel)
+            #save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_accel)
             gc.collect()
 
         # ========================================================
@@ -604,7 +604,7 @@ def main():
             conn = create_momentum_features(conn, SQL_TABLE_NAME, vars_momentum, recent_window=2, past_start=2, past_end=5)
             
             logger.info("=== GUARDANDO CHECKPOINT DESPUES DE MOMENTUM ===")
-            save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_momentum)
+            #save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_momentum)
             gc.collect()
 
         # ========================================================
@@ -639,7 +639,7 @@ def main():
             conn = create_streak_features(conn, SQL_TABLE_NAME, conditions_streaks, output_names_streaks, window=3)
             
             logger.info("=== GUARDANDO CHECKPOINT DESPUES DE STREAKS ===")
-            save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_streaks)
+            #save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_streaks)
             gc.collect()
 
         # ========================================================
