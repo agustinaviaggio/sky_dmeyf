@@ -48,7 +48,7 @@ def cargar_features_seleccionadas(umbral='90pct'):
     logger.info(f"=== CARGANDO FEATURES SELECCIONADAS (umbral: {umbral}) ===")
     
     # Construir patrón de búsqueda según el umbral
-    if umbral == '50':
+    if umbral == '50pct':
         # Para union, el archivo tiene otro formato
         gcs_pattern = f"{BUCKET_NAME}resultados/union_features_{STUDY_NAME}_*.json"
     else:
