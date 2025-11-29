@@ -273,7 +273,11 @@ def main():
             # 6. Borrar atributos individuales usandos para crear los atributos tipo suma para las tarjetas de crédito
             conn = drop_columns(conn, SQL_TABLE_NAME, cols_visa_str+cols_master_str)
 
-            # 7. Crear atributos tipo ratio entre pares de variables m_ y c_
+            # 7. Crear atributos tipo cuantiles (reemplazar variables 'm')
+            logger.info("PASO 7: Reemplazando variables 'm' por cuantiles...")
+            conn = create_quantile_attributes_m_vars(conn, SQL_TABLE_NAME, n_quantiles=25)
+
+            # 8. Crear atributos tipo ratio entre pares de variables m_ y c_
             conn = create_ratio_m_c_attributes(conn, SQL_TABLE_NAME)
 
             # 13. Deuda total en préstamos

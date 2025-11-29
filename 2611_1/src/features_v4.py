@@ -2102,3 +2102,84 @@ def create_trend_features(conn: duckdb.DuckDBPyConnection, table_name: str, colu
     
     logger.info(f"Tendencias (slope) creadas exitosamente para {len(columns)} columnas")
     return conn
+
+def create_quantile_attributes_m_vars(conn: duckdb.DuckDBPyConnection, table_name: str, n_quantiles: int = 25) -> duckdb.DuckDBPyConnection:
+    """
+    Reemplaza variables que empiezan con 'm' por sus cuantiles.
+    Excluye automáticamente variables que contienen 'status'.
+    Asigna a cada valor un cuantil (1 a n_quantiles) basado en su posición relativa en foto_mes.
+    
+    Recomendación: Para LightGBM con bins=31, usar n_quantiles entre 20-30.
+    Default de 25 cuantiles aprovecha ~80% de la capacidad sin saturar.
+    
+    Parameters:
+    -----------
+    conn : duckdb.DuckDBPyConnection
+        Conexión a la tabla DuckDB con los datos.
+    table_name : str
+        Nombre de la tabla a procesar
+    n_quantiles : int, default=25
+        Número de cuantiles. Recomendado 25 para LightGBM con bins=31.
+        - 10: Deciles (sub-utiliza LightGBM)
+        - 20: Conservador
+        - 25: Balance recomendado (default)
+        - 30: Máxima granularidad
+  
+    Returns:
+    --------
+    duckdb.DuckDBPyConnection
+       Conexión a la tabla DuckDB con las variables 'm' reemplazadas por cuantiles.
+    """
+
+    logger.info(f"Reemplazando variables 'm' por {n_quantiles} cuantiles (excluyendo 'status')")
+
+    # Obtener columnas que empiezan con 'm', son numéricas y NO contienen 'status'
+    sql_get_cols = f"""
+        SELECT name 
+        FROM pragma_table_info('{table_name}')
+        WHERE name LIKE 'm%'
+          AND type NOT IN ('INTEGER', 'VARCHAR')
+          AND name NOT LIKE '%status%'
+    """
+    
+    cols_m_list = conn.execute(sql_get_cols).fetchall()
+    cols_m = [c[0] for c in cols_m_list]
+
+    logger.info(f"Se reemplazarán {len(cols_m)} columnas 'm' por {n_quantiles} cuantiles")
+
+    if not cols_m:
+        logger.warning("No se encontraron columnas válidas que empiecen con 'm'. Devolviendo la conexión sin cambios.")
+        return conn
+    
+    # Crear expresiones SQL para los cuantiles
+    quantile_exprs = []
+    for attr in cols_m:
+        quantile_exprs.append(f"NTILE({n_quantiles}) OVER (PARTITION BY foto_mes ORDER BY {attr}) AS {attr}")
+    
+    # Obtener todas las columnas de la tabla
+    sql_all_cols = f"SELECT name FROM pragma_table_info('{table_name}')"
+    all_cols_list = conn.execute(sql_all_cols).fetchall()
+    all_cols = [c[0] for c in all_cols_list]
+    
+    # Separar columnas que NO son 'm' (estas se mantienen tal cual)
+    cols_keep = [c for c in all_cols if c not in cols_m]
+    
+    # Construir el SELECT: primero las columnas que se mantienen, luego los cuantiles
+    select_parts = cols_keep + quantile_exprs
+    select_str = ", ".join(select_parts)
+
+    # Construir la consulta SQL
+    sql = f"""
+        CREATE OR REPLACE TABLE {table_name} AS
+        SELECT {select_str}
+        FROM {table_name}
+    """
+
+    logger.debug(f"Consulta SQL generada para {len(cols_m)} columnas")
+
+    # Ejecutar la consulta SQL
+    conn.execute(sql)
+    
+    logger.info(f"Variables 'm' reemplazadas exitosamente por {n_quantiles} cuantiles ({len(cols_m)} columnas)")
+    
+    return conn
