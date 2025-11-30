@@ -198,7 +198,7 @@ def main():
 
         # 6. Evaluación en TEST 1
         logger.info("=== EVALUACIÓN EN CONJUNTO DE TEST 1 ===")
-        '''resultados_test = evaluar_en_test(
+        resultados_test = evaluar_en_test(
             conn, 
             SQL_TABLE_NAME, 
             study, 
@@ -259,7 +259,7 @@ def main():
             gcs_path = f"{BUCKET_NAME}resultados/{metadata_file}"
             subprocess.run(['gsutil', 'cp', metadata_path, gcs_path])
             logger.info(f"✓ Metadata guardada en: {gcs_path}")
-
+        '''
     except Exception as e:
         logger.error(f"Error durante la ejecución del pipeline: {e}")
         import traceback
