@@ -639,7 +639,7 @@ def main():
             conn = create_streak_features(conn, SQL_TABLE_NAME, conditions_streaks, output_names_streaks, window=3)
             
             logger.info("=== GUARDANDO CHECKPOINT DESPUES DE STREAKS ===")
-            #save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_streaks)
+            .save_checkpoint(conn, SQL_TABLE_NAME, checkpoint_after_streaks)
             gc.collect()
 
         # ========================================================
