@@ -40,15 +40,19 @@ def cargar_features_seleccionadas(umbral='90pct'):
     Descarga y carga el JSON con las features seleccionadas desde GCS.
     
     Args:
-        umbral: Umbral de frecuencia a usar ('100pct', '90pct', '80pct', '75pct', '50pct')
+        umbral: Umbral de frecuencia a usar ('union','100pct', '90pct', '80pct', '75pct', '50pct')
     
     Returns:
         lista de features seleccionadas
     """
     logger.info(f"=== CARGANDO FEATURES SELECCIONADAS (umbral: {umbral}) ===")
     
-    # Listar archivos disponibles en GCS
-    gcs_pattern = f"{BUCKET_NAME}resultados/features_{umbral}_{STUDY_NAME}_*.json"
+    # Construir patrón de búsqueda según el umbral
+    if umbral == 'union':
+        # Para union, el archivo tiene otro formato
+        gcs_pattern = f"{BUCKET_NAME}resultados/union_features_{STUDY_NAME}_*.json"
+    else:
+        gcs_pattern = f"{BUCKET_NAME}resultados/features_{umbral}_{STUDY_NAME}_*.json"
     
     result = subprocess.run(
         ['gsutil', 'ls', gcs_pattern],
@@ -88,12 +92,19 @@ def cargar_features_seleccionadas(umbral='90pct'):
         with open(tmp_path, 'r') as f:
             data = json.load(f)
         
-        features = data['features']
-        total = data['total']
+        # Extraer features según el tipo de archivo
+        if umbral == 'union':
+            features = data['union_features']['lista_completa']
+            total = data['union_features']['total_features_en_union']
+            logger.info(f"✓ Features cargadas exitosamente (UNIÓN COMPLETA)")
+            logger.info(f"  Total de features: {total}")
+        else:
+            features = data['features']
+            total = data['total']
+            logger.info(f"✓ Features cargadas exitosamente")
+            logger.info(f"  Total de features: {total}")
+            logger.info(f"  Umbral: {data['umbral']}")
         
-        logger.info(f"✓ Features cargadas exitosamente")
-        logger.info(f"  Total de features: {total}")
-        logger.info(f"  Umbral: {data['umbral']}")
         logger.info(f"  Archivo: {archivo_mas_reciente.split('/')[-1]}")
         
         return features
@@ -123,6 +134,7 @@ def main():
         
         # 1. Configurar DuckDB y GCS
         conn = duckdb.connect(database=':memory:')
+        conn.execute("SET temp_directory='/tmp'")
         
         # Configurar GCS
         from google.auth import default
@@ -142,35 +154,19 @@ def main():
             )
         """)  
         
-        # 2. Cargar datos y crear tabla SQL
-        conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_OPT, SQL_TABLE_NAME)
-        
-        # 3. Filtrar features si se cargaron
         if features_seleccionadas is not None:
-            logger.info("=== FILTRANDO DATASET CON FEATURES SELECCIONADAS ===")
-            
-            # Agregar columnas necesarias que no son features
+            logger.info("=== CARGANDO DATASET CON FEATURES SELECCIONADAS ===")
             columnas_necesarias = ['target_binario', 'target_ternario', 'foto_mes']
-            columnas_a_mantener = features_seleccionadas + columnas_necesarias
-            
-            # Crear tabla filtrada
-            columnas_str = ', '.join(columnas_a_mantener)
+            columnas_str = ', '.join(features_seleccionadas + columnas_necesarias)
             
             conn.execute(f"""
-                CREATE TABLE {SQL_TABLE_NAME}_filtered AS
+                CREATE TABLE {SQL_TABLE_NAME} AS 
                 SELECT {columnas_str}
-                FROM {SQL_TABLE_NAME}
+                FROM read_parquet('{DATA_PATH_OPT}')
             """)
-            
-            # Reemplazar tabla original
-            conn.execute(f"DROP TABLE {SQL_TABLE_NAME}")
-            conn.execute(f"ALTER TABLE {SQL_TABLE_NAME}_filtered RENAME TO {SQL_TABLE_NAME}")
-            
-            logger.info(f"✓ Dataset filtrado: {len(features_seleccionadas)} features + {len(columnas_necesarias)} columnas auxiliares")
-            
-            # Verificar columnas finales
-            result = conn.execute(f"DESCRIBE {SQL_TABLE_NAME}").fetchall()
-            logger.info(f"  Columnas finales en tabla: {len(result)}")
+            logger.info(f"✓ Dataset cargado: {len(features_seleccionadas)} features")
+        else:
+            conn = create_sql_table_from_parquet_csv(conn, DATA_PATH_OPT, SQL_TABLE_NAME)
         
         # 4. Ejecutar optimización
         study = optimizar(conn, SQL_TABLE_NAME, n_trials=150)
@@ -196,9 +192,9 @@ def main():
 
         logger.info("=== OPTIMIZACIÓN COMPLETADA ===")
 
-        # 6. Evaluación en TEST 1
+        '''# 6. Evaluación en TEST 1
         logger.info("=== EVALUACIÓN EN CONJUNTO DE TEST 1 ===")
-        '''resultados_test = evaluar_en_test(
+        resultados_test = evaluar_en_test(
             conn, 
             SQL_TABLE_NAME, 
             study, 
