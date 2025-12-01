@@ -16,6 +16,18 @@ import optuna
 # Lista de estudios a evaluar
 ESTUDIOS = ['2511_2', '2611_2', '2711_1', '2711_2', '2811_1', '2911_1', '3011_1']
 
+# Umbral de features usado en optimización por cada estudio
+# None = usar todas las features
+UMBRAL_POR_ESTUDIO = {
+    '2511_2': None,      # All features
+    '2611_2': '50pct',   
+    '2711_1': '80pct',   
+    '2711_2': 'union',   
+    '2811_1': None,      # All features
+    '2911_1': '50pct',   
+    '3011_1': 'union',
+}
+
 # Primeras 25 semillas
 SEMILLAS = [600011, 600043, 600053, 600071, 600073,
             600091, 600107, 600109, 600113, 600137,
@@ -60,46 +72,48 @@ class ConfiguracionEstudio:
         self.costo_estimulo = self.config['COSTO_ESTIMULO']
         self.undersampling_ratio = self.config.get('UNDERSAMPLING_RATIO', 0.075)
         
-        # Intentar detectar si usa features seleccionadas
+        # Obtener umbral de features de la configuración global
+        self.umbral_features = UMBRAL_POR_ESTUDIO.get(study_name, None)
+        
+        # Cargar features seleccionadas según configuración
         self.features_seleccionadas = self._cargar_features_seleccionadas()
     
     def _cargar_features_seleccionadas(self):
-        """Intenta cargar features seleccionadas desde GCS."""
+        """Carga features seleccionadas según el umbral definido para este estudio."""
+        if self.umbral_features is None:
+            logger.info(f"{self.study_name}: Sin selección de features, se usarán todas")
+            return None
+        
         try:
-            # Buscar archivos de features en GCS - Patrones en orden de prioridad
-            patrones = [
-                # Primero buscar 50pct (usado en optimización reciente)
-                (f"{self.bucket_name}resultados/features_50pct_{self.study_name}_*.json", 'features'),
-                # Luego union (alternativa común)
-                (f"{self.bucket_name}resultados/union_features_{self.study_name}_*.json", 'union'),
-                # Finalmente otros umbrales
-                (f"{self.bucket_name}resultados/features_90pct_{self.study_name}_*.json", 'features'),
-                (f"{self.bucket_name}resultados/features_80pct_{self.study_name}_*.json", 'features'),
-                (f"{self.bucket_name}resultados/features_75pct_{self.study_name}_*.json", 'features'),
-                (f"{self.bucket_name}resultados/features_100pct_{self.study_name}_*.json", 'features'),
-            ]
+            logger.info(f"{self.study_name}: Cargando features con umbral {self.umbral_features}")
             
-            archivo_mas_reciente = None
-            tipo_archivo = None
+            # Construir patrón según el umbral (igual que 02_optimizacion.py)
+            if self.umbral_features == 'union':
+                gcs_pattern = f"{self.bucket_name}resultados/union_features_{self.study_name}_*.json"
+                tipo_archivo = 'union'
+            else:
+                gcs_pattern = f"{self.bucket_name}resultados/features_{self.umbral_features}_{self.study_name}_*.json"
+                tipo_archivo = 'features'
             
-            for gcs_pattern, tipo in patrones:
-                result = subprocess.run(
-                    ['gsutil', 'ls', gcs_pattern],
-                    capture_output=True,
-                    text=True
-                )
-                
-                if result.returncode == 0:
-                    archivos = result.stdout.strip().split('\n')
-                    if archivos and archivos[0] != '':
-                        archivo_mas_reciente = sorted(archivos)[-1]
-                        tipo_archivo = tipo
-                        logger.info(f"{self.study_name}: Encontrado {archivo_mas_reciente.split('/')[-1]}")
-                        break
+            result = subprocess.run(
+                ['gsutil', 'ls', gcs_pattern],
+                capture_output=True,
+                text=True
+            )
             
-            if archivo_mas_reciente is None:
-                logger.info(f"{self.study_name}: No hay features seleccionadas, se usarán todas")
+            if result.returncode != 0:
+                logger.warning(f"{self.study_name}: No se encontró archivo con patrón {gcs_pattern}")
+                logger.warning(f"{self.study_name}: Se usarán todas las features")
                 return None
+            
+            # Tomar el más reciente
+            archivos = result.stdout.strip().split('\n')
+            if not archivos or archivos[0] == '':
+                logger.warning(f"{self.study_name}: No se encontró archivo de features")
+                return None
+            
+            archivo_mas_reciente = sorted(archivos)[-1]
+            logger.info(f"{self.study_name}: Encontrado {archivo_mas_reciente.split('/')[-1]}")
             
             # Descargar y leer
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
@@ -115,16 +129,13 @@ class ConfiguracionEstudio:
                 with open(tmp_path, 'r') as f:
                     data = json.load(f)
                 
-                # Extraer features según el tipo de archivo
+                # Extraer features según el tipo (igual que 02_optimizacion.py)
                 if tipo_archivo == 'union':
                     features = data['union_features']['lista_completa']
-                elif tipo_archivo == 'features':
-                    features = data['features']
                 else:
-                    logger.warning(f"{self.study_name}: Tipo de archivo desconocido")
-                    return None
+                    features = data['features']
                 
-                logger.info(f"{self.study_name}: {len(features)} features seleccionadas cargadas")
+                logger.info(f"{self.study_name}: {len(features)} features cargadas (umbral: {self.umbral_features})")
                 return features
                 
             finally:
@@ -133,6 +144,7 @@ class ConfiguracionEstudio:
                     
         except Exception as e:
             logger.warning(f"{self.study_name}: Error cargando features: {e}")
+            logger.warning(f"{self.study_name}: Se usarán todas las features")
             return None
 
 
@@ -549,6 +561,7 @@ def evaluar_estudio(study_name):
             'config': {
                 'n_features': len(feature_cols),
                 'usa_features_seleccionadas': config.features_seleccionadas is not None,
+                'umbral_features': config.umbral_features,
                 'undersampling_ratio': config.undersampling_ratio
             }
         }
@@ -790,7 +803,8 @@ def guardar_resultados(resultados, output_path="gs://sra_electron_bukito3/confor
                 'variabilidad_std_mean': r['resultado_ensemble']['variabilidad_interna']['std_mean'],
                 'threshold': r['resultado_ensemble']['threshold'],
                 'envios': r['resultado_ensemble']['envios'],
-                'n_features': r['config']['n_features']
+                'n_features': r['config']['n_features'],
+                'umbral_features': r['config']['umbral_features']
             }
             for r in resultados
         ],
@@ -856,6 +870,7 @@ def main():
         logger.info(f"  Var. interna:    {r['resultado_ensemble']['variabilidad_interna']['std_mean']:>15.4f}")
         logger.info(f"  Threshold:       {r['resultado_ensemble']['threshold']:>15.6f}")
         logger.info(f"  Features:        {r['config']['n_features']:>15,}")
+        logger.info(f"  Umbral:          {str(r['config']['umbral_features']):>15}")
     
     # Imprimir estrategia sugerida
     logger.info("\n" + "="*80)
