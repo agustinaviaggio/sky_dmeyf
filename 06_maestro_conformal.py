@@ -66,25 +66,40 @@ class ConfiguracionEstudio:
     def _cargar_features_seleccionadas(self):
         """Intenta cargar features seleccionadas desde GCS."""
         try:
-            # Buscar archivo de features en GCS
-            gcs_pattern = f"{self.bucket_name}resultados/union_features_{self.study_name}_*.json"
+            # Buscar archivos de features en GCS - Patrones en orden de prioridad
+            patrones = [
+                # Primero buscar 50pct (usado en optimización reciente)
+                (f"{self.bucket_name}resultados/features_50pct_{self.study_name}_*.json", 'features'),
+                # Luego union (alternativa común)
+                (f"{self.bucket_name}resultados/union_features_{self.study_name}_*.json", 'union'),
+                # Finalmente otros umbrales
+                (f"{self.bucket_name}resultados/features_90pct_{self.study_name}_*.json", 'features'),
+                (f"{self.bucket_name}resultados/features_80pct_{self.study_name}_*.json", 'features'),
+                (f"{self.bucket_name}resultados/features_75pct_{self.study_name}_*.json", 'features'),
+                (f"{self.bucket_name}resultados/features_100pct_{self.study_name}_*.json", 'features'),
+            ]
             
-            result = subprocess.run(
-                ['gsutil', 'ls', gcs_pattern],
-                capture_output=True,
-                text=True
-            )
+            archivo_mas_reciente = None
+            tipo_archivo = None
             
-            if result.returncode != 0:
+            for gcs_pattern, tipo in patrones:
+                result = subprocess.run(
+                    ['gsutil', 'ls', gcs_pattern],
+                    capture_output=True,
+                    text=True
+                )
+                
+                if result.returncode == 0:
+                    archivos = result.stdout.strip().split('\n')
+                    if archivos and archivos[0] != '':
+                        archivo_mas_reciente = sorted(archivos)[-1]
+                        tipo_archivo = tipo
+                        logger.info(f"{self.study_name}: Encontrado {archivo_mas_reciente.split('/')[-1]}")
+                        break
+            
+            if archivo_mas_reciente is None:
                 logger.info(f"{self.study_name}: No hay features seleccionadas, se usarán todas")
                 return None
-            
-            # Tomar el más reciente
-            archivos = result.stdout.strip().split('\n')
-            if not archivos or archivos[0] == '':
-                return None
-            
-            archivo_mas_reciente = sorted(archivos)[-1]
             
             # Descargar y leer
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
@@ -100,7 +115,15 @@ class ConfiguracionEstudio:
                 with open(tmp_path, 'r') as f:
                     data = json.load(f)
                 
-                features = data['union_features']['lista_completa']
+                # Extraer features según el tipo de archivo
+                if tipo_archivo == 'union':
+                    features = data['union_features']['lista_completa']
+                elif tipo_archivo == 'features':
+                    features = data['features']
+                else:
+                    logger.warning(f"{self.study_name}: Tipo de archivo desconocido")
+                    return None
+                
                 logger.info(f"{self.study_name}: {len(features)} features seleccionadas cargadas")
                 return features
                 
