@@ -210,6 +210,11 @@ class ConformalPredictor:
     
     def _calcular_calibracion(self, probs, confidences, y_true):
         """Calcula Expected Calibration Error (ECE)."""
+        # Asegurar que todo sea numpy array
+        probs = np.array(probs)
+        confidences = np.array(confidences)
+        y_true = np.array(y_true)
+        
         # Crear bins por nivel de confianza
         n_bins = 10
         bin_boundaries = np.linspace(0, 1, n_bins + 1)
@@ -222,10 +227,10 @@ class ConformalPredictor:
             bin_upper = bin_boundaries[i + 1]
             
             # Casos en este bin
-            in_bin = (confidences >= bin_lower) & (confidences < bin_upper)
-            
             if i == n_bins - 1:  # Último bin incluye el límite superior
                 in_bin = (confidences >= bin_lower) & (confidences <= bin_upper)
+            else:
+                in_bin = (confidences >= bin_lower) & (confidences < bin_upper)
             
             n_in_bin = np.sum(in_bin)
             
