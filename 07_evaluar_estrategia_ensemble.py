@@ -333,20 +333,21 @@ def evaluar_estrategias(resultados):
     logger.info(f"   Mejor: {mejor_ensemble['estudio']}")
     logger.info(f"   Ganancia: ${mejor_ensemble['ganancia']:,.0f}")
     
-    # 3. SUPER-ENSEMBLE PESOS IGUALES
-    logger.info("\n3. Evaluando super-ensemble pesos iguales...")
+    # 3. SUPER-ENSEMBLE PESOS IGUALES (TODOS)
+    logger.info("\n3. Evaluando super-ensemble pesos iguales (7 estudios)...")
     probs_iguales = np.mean([np.array(r['predicciones_ensemble']) for r in resultados], axis=0)
     resultado_iguales = encontrar_threshold_optimo(y_test, probs_iguales, ganancia_acierto, costo_estimulo)
     estrategias.append({
         **resultado_iguales,
-        'estrategia': 'SUPER_ENSEMBLE_IGUALES',
+        'estrategia': 'SUPER_ENSEMBLE_IGUALES_7',
         'n_estudios': len(resultados),
+        'estudios': [r['study_name'] for r in resultados],
         'peso_por_estudio': 1.0 / len(resultados)
     })
     logger.info(f"   Ganancia: ${resultado_iguales['ganancia']:,.0f}")
     
-    # 4. SUPER-ENSEMBLE PESOS POR GANANCIA
-    logger.info("\n4. Evaluando super-ensemble pesos por ganancia...")
+    # 4. SUPER-ENSEMBLE PESOS POR GANANCIA (TODOS)
+    logger.info("\n4. Evaluando super-ensemble pesos por ganancia (7 estudios)...")
     ganancias = []
     for r in resultados:
         resultado = encontrar_threshold_optimo(y_test, r['predicciones_ensemble'], ganancia_acierto, costo_estimulo)
@@ -364,37 +365,80 @@ def evaluar_estrategias(resultados):
     resultado_ganancia = encontrar_threshold_optimo(y_test, probs_ganancia, ganancia_acierto, costo_estimulo)
     estrategias.append({
         **resultado_ganancia,
-        'estrategia': 'SUPER_ENSEMBLE_GANANCIA',
+        'estrategia': 'SUPER_ENSEMBLE_GANANCIA_7',
         'n_estudios': len(resultados),
+        'estudios': [r['study_name'] for r in resultados],
         'pesos': {r['study_name']: float(p) for r, p in zip(resultados, pesos_ganancia)}
     })
     logger.info(f"   Ganancia: ${resultado_ganancia['ganancia']:,.0f}")
     
-    # 5. TOP-N ENSEMBLES
-    logger.info("\n5. Evaluando top-N ensembles...")
+    # 5. TODAS LAS COMBINACIONES DE 2, 3, 4, 5 Y 6 ESTUDIOS
+    from itertools import combinations
+    
+    for n_comb in [2, 3, 4, 5, 6]:
+        logger.info(f"\n5.{n_comb}. Evaluando todas las combinaciones de {n_comb} estudios...")
+        
+        n_total_combs = len(list(combinations(range(len(resultados)), n_comb)))
+        logger.info(f"   Total de combinaciones: {n_total_combs}")
+        
+        mejor_comb = None
+        comb_count = 0
+        
+        for indices in combinations(range(len(resultados)), n_comb):
+            comb_count += 1
+            
+            estudios_comb = [resultados[i] for i in indices]
+            nombres_comb = [resultados[i]['study_name'] for i in indices]
+            
+            # Promediar predicciones
+            probs_comb = np.mean([np.array(r['predicciones_ensemble']) for r in estudios_comb], axis=0)
+            
+            resultado_comb = encontrar_threshold_optimo(y_test, probs_comb, ganancia_acierto, costo_estimulo)
+            
+            if mejor_comb is None or resultado_comb['ganancia'] > mejor_comb['ganancia']:
+                mejor_comb = {
+                    **resultado_comb,
+                    'estrategia': f'COMBO_{n_comb}_ESTUDIOS',
+                    'n_estudios': n_comb,
+                    'estudios': nombres_comb,
+                    'indices': list(indices)
+                }
+            
+            # Log progreso cada 10 combinaciones
+            if comb_count % 10 == 0 or comb_count == n_total_combs:
+                logger.info(f"     Procesadas {comb_count}/{n_total_combs} combinaciones...")
+        
+        estrategias.append(mejor_comb)
+        logger.info(f"   Mejor combinación: {', '.join(mejor_comb['estudios'])}")
+        logger.info(f"   Ganancia: ${mejor_comb['ganancia']:,.0f}")
+    
+    # 6. TOP-N POR GANANCIA INDIVIDUAL
+    logger.info("\n6. Evaluando top-N por ganancia individual...")
+    
+    # Calcular ganancia individual de cada estudio
+    ganancias_estudios = []
+    for r in resultados:
+        resultado = encontrar_threshold_optimo(y_test, r['predicciones_ensemble'], ganancia_acierto, costo_estimulo)
+        ganancias_estudios.append((r, resultado['ganancia']))
+    
+    ganancias_estudios.sort(key=lambda x: x[1], reverse=True)
+    
     for n in [3, 5]:
         if n >= len(resultados):
             continue
         
-        # Ordenar por ganancia individual
-        ordenados = sorted(
-            [(r, encontrar_threshold_optimo(y_test, r['predicciones_ensemble'], ganancia_acierto, costo_estimulo)['ganancia']) 
-             for r in resultados],
-            key=lambda x: x[1],
-            reverse=True
-        )[:n]
-        
-        top_resultados = [r for r, _ in ordenados]
+        top_resultados = [r for r, _ in ganancias_estudios[:n]]
         probs_top = np.mean([np.array(r['predicciones_ensemble']) for r in top_resultados], axis=0)
         
         resultado_top = encontrar_threshold_optimo(y_test, probs_top, ganancia_acierto, costo_estimulo)
         estrategias.append({
             **resultado_top,
-            'estrategia': f'SUPER_ENSEMBLE_TOP{n}',
+            'estrategia': f'TOP_{n}_POR_GANANCIA',
             'estudios': [r['study_name'] for r in top_resultados],
             'n_estudios': n
         })
-        logger.info(f"   Top-{n}: ${resultado_top['ganancia']:,.0f}")
+        logger.info(f"   Top-{n}: {', '.join([r['study_name'] for r in top_resultados])}")
+        logger.info(f"   Ganancia: ${resultado_top['ganancia']:,.0f}")
     
     return estrategias
 
