@@ -90,7 +90,7 @@ def descargar_modelos_estudio(study_name, bucket_name):
     return modelos
 
 def cargar_datos_prediccion(mes_prediccion):
-    """Carga datos descargando el parquet completo."""
+    """Carga datos del mes de predicción desde GCS."""
     logger.info(f"\nCargando datos de {mes_prediccion}...")
     
     # Cargar config
@@ -99,47 +99,53 @@ def cargar_datos_prediccion(mes_prediccion):
         config = yaml.safe_load(f)['configuracion']
     
     data_path = config['DATA_PATH_OPT']
-    logger.info(f"  Ruta GCS: {data_path}")
+    logger.info(f"  Ruta: {data_path}")
     
-    # Refrescar credenciales
-    refrescar_credenciales_gcs()
-    
-    # Descargar parquet completo
-    local_path = Path.home() / "temp_prediccion.parquet"
-    
-    if not local_path.exists():
-        logger.info(f"  Descargando parquet completo...")
-        result = subprocess.run(
-            ['gsutil', '-m', 'cp', data_path, str(local_path)],
-            capture_output=True,
-            text=True,
-            timeout=600
-        )
-        
-        if result.returncode != 0:
-            raise Exception(f"Error descargando: {result.stderr}")
-        
-        logger.info(f"  ✓ Descarga completada")
-    else:
-        logger.info(f"  ✓ Usando parquet local existente")
-    
-    # Leer con DuckDB local
+    # Conectar DuckDB
     conn = duckdb.connect(database=':memory:')
+    conn.execute("SET temp_directory='/tmp'")
     
-    query = f"""
-        SELECT * 
-        FROM read_parquet('{local_path}')
-        WHERE foto_mes = {mes_prediccion}
-    """
+    # Configurar GCS (IGUAL QUE EN 02_optimizacion.py)
+    from google.auth import default
+    from google.auth.transport.requests import Request
     
+    credentials, project = default()
+    credentials.refresh(Request())
+    token = credentials.token
+    
+    conn.execute("INSTALL httpfs;")
+    conn.execute("LOAD httpfs;")
+    conn.execute(f"""
+        CREATE SECRET (
+            TYPE GCS,
+            PROVIDER config,
+            BEARER_TOKEN '{token}'
+        )
+    """)
+    
+    # ✅ CREAR TABLA PRIMERO (como en 02_optimizacion.py)
+    logger.info(f"  Creando tabla desde parquet...")
+    conn.execute(f"""
+        CREATE TABLE datos AS 
+        SELECT *
+        FROM read_parquet('{data_path}')
+    """)
+    
+    logger.info(f"  ✓ Tabla creada")
+    
+    # Ahora consultar el mes específico
     logger.info(f"  Filtrando foto_mes={mes_prediccion}...")
+    query = f"SELECT * FROM datos WHERE foto_mes = {mes_prediccion}"
     data = conn.execute(query).fetchnumpy()
     
+    # Obtener numero_de_cliente
     if 'numero_de_cliente' in data:
         numeros_cliente = data['numero_de_cliente']
     else:
+        logger.warning("No se encontró 'numero_de_cliente', usando índices")
         numeros_cliente = np.arange(len(list(data.values())[0]))
     
+    # Features
     feature_cols = [col for col in data.keys() 
                    if col not in ['target_binario', 'target_ternario', 'foto_mes']]
     
