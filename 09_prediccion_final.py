@@ -5,11 +5,11 @@ import pandas as pd
 import subprocess
 import tempfile
 import lightgbm as lgb
+import os
+import gc
+import yaml
 from pathlib import Path
 from datetime import datetime
-import yaml
-import gc
-import os
 
 # Configuración
 ESTUDIOS_GANADORES = ['2511_2', '2611_2', '2711_2']
@@ -125,20 +125,21 @@ def cargar_datos_prediccion(mes_prediccion):
     
     data = conn.execute(query).fetchnumpy()
     
-    # Obtener numero_de_cliente
+    # Obtener numero_de_cliente ANTES de crear X
     if 'numero_de_cliente' in data:
         numeros_cliente = data['numero_de_cliente']
     else:
         logger.warning("No se encontró 'numero_de_cliente', usando índices")
         numeros_cliente = np.arange(len(data['foto_mes']))
     
-    # Features (excluir targets y metadata)
+    # Features (excluir solo targets y foto_mes, INCLUIR numero_de_cliente si está)
     feature_cols = [col for col in data.keys() 
-                   if col not in ['target_binario', 'target_ternario', 'foto_mes', 'numero_de_cliente']]
+                   if col not in ['target_binario', 'target_ternario', 'foto_mes']]
     
     X = np.column_stack([data[col] for col in feature_cols])
     
     logger.info(f"  ✓ {len(numeros_cliente):,} registros, {len(feature_cols)} features")
+    logger.info(f"  Features incluyen: numero_de_cliente = {'numero_de_cliente' in feature_cols}")
     
     conn.close()
     
