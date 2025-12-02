@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime
 import yaml
 import gc
+import os
 
 # Configuración
 ESTUDIOS_GANADORES = ['2511_2', '2611_2', '2711_2']
