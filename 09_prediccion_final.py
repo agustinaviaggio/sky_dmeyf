@@ -16,8 +16,8 @@ from datetime import datetime
 ESTUDIOS_GANADORES = ['2511_2', '2611_2', '2711_2']
 BUCKET_NAME = "gs://sra_electron_bukito3/"
 MES_PREDICCION = 202109
-THRESHOLD_CALCULADO = 0.740891  # Del análisis anterior
-ENVIOS_FIJOS = 11000
+THRESHOLD_CALCULADO = 0.76  # Del análisis anterior
+ENVIOS_FIJOS = 12000
 
 # Logging
 os.makedirs("logs", exist_ok=True)
