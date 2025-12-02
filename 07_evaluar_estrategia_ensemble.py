@@ -11,7 +11,6 @@ from datetime import datetime
 from pathlib import Path
 import lightgbm as lgb
 import optuna
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Configuración
 ESTUDIOS = ['2511_2', '2611_2', '2711_1', '2711_2', '2811_1', '2911_1', '3011_1']
@@ -46,6 +45,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def refrescar_credenciales_gcs():
+    """Refresca las credenciales de GCS."""
+    try:
+        from google.auth import default
+        from google.auth.transport.requests import Request
+        
+        credentials, project = default()
+        credentials.refresh(Request())
+        
+        # Exportar token para gsutil
+        os.environ['CLOUDSDK_AUTH_ACCESS_TOKEN'] = credentials.token
+        
+        return credentials.token
+    except Exception as e:
+        logger.error(f"Error refrescando credenciales: {e}")
+        raise
+
+
 def cargar_config_estudio(study_name):
     """Carga configuración de un estudio."""
     conf_file = Path(f"~/sky_dmeyf/{study_name}/conf.yaml").expanduser()
@@ -60,6 +77,9 @@ def cargar_features_seleccionadas(study_name, bucket_name, umbral):
         return None
     
     try:
+        # Refrescar credenciales antes de acceder a GCS
+        refrescar_credenciales_gcs()
+        
         if umbral == 'union':
             gcs_pattern = f"{bucket_name}resultados/union_features_{study_name}_*.json"
             tipo = 'union'
@@ -67,44 +87,74 @@ def cargar_features_seleccionadas(study_name, bucket_name, umbral):
             gcs_pattern = f"{bucket_name}resultados/features_{umbral}_{study_name}_*.json"
             tipo = 'features'
         
-        result = subprocess.run(['gsutil', 'ls', gcs_pattern], capture_output=True, text=True)
+        # gsutil ls con timeout
+        result = subprocess.run(
+            ['gsutil', 'ls', gcs_pattern], 
+            capture_output=True, 
+            text=True,
+            timeout=30
+        )
+        
         if result.returncode != 0:
-            return None
+            logger.error(f"No se encontró archivo de features para {study_name}")
+            raise Exception(f"gsutil ls falló")
         
         archivos = result.stdout.strip().split('\n')
         if not archivos or archivos[0] == '':
-            return None
+            raise Exception("No se encontraron archivos")
         
         archivo = sorted(archivos)[-1]
+        logger.info(f"{study_name}: Archivo encontrado: {archivo.split('/')[-1]}")
         
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
             tmp_path = tmp.name
         
         try:
-            subprocess.run(['gsutil', 'cp', archivo, tmp_path], capture_output=True, check=True)
+            # gsutil cp con timeout
+            subprocess.run(
+                ['gsutil', 'cp', archivo, tmp_path], 
+                capture_output=True, 
+                text=True,
+                timeout=60,
+                check=True
+            )
+            
             with open(tmp_path, 'r') as f:
                 data = json.load(f)
             
             if tipo == 'union':
-                return data['union_features']['lista_completa']
+                features = data['union_features']['lista_completa']
             else:
-                return data['features']
+                features = data['features']
+            
+            return features
+            
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
-    except:
-        return None
+                
+    except Exception as e:
+        logger.error(f"Error crítico cargando features para {study_name}: {e}")
+        raise
 
 
 def cargar_hiperparametros(study_name, bucket_name):
     """Carga hiperparámetros de Optuna."""
+    # Refrescar credenciales antes de acceder a GCS
+    refrescar_credenciales_gcs()
+    
     local_db_dir = Path.home() / "optuna_db"
     local_db_dir.mkdir(exist_ok=True)
     
     db_file = local_db_dir / f"{study_name}.db"
     gcs_path = f"{bucket_name}optuna_db/{study_name}.db"
     
-    subprocess.run(['gsutil', 'cp', gcs_path, str(db_file)], check=True, capture_output=True)
+    subprocess.run(
+        ['gsutil', 'cp', gcs_path, str(db_file)], 
+        check=True, 
+        capture_output=True,
+        timeout=60
+    )
     
     storage = f"sqlite:///{db_file}"
     study = optuna.load_study(study_name=study_name, storage=storage)
@@ -138,11 +188,8 @@ def entrenar_y_predecir_estudio(study_name):
         # Conectar DuckDB
         conn = duckdb.connect(database=':memory:')
         
-        from google.auth import default
-        from google.auth.transport.requests import Request
-        
-        credentials, project = default()
-        credentials.refresh(Request())
+        # Refrescar credenciales para DuckDB
+        token = refrescar_credenciales_gcs()
         
         conn.execute("INSTALL httpfs;")
         conn.execute("LOAD httpfs;")
@@ -150,7 +197,7 @@ def entrenar_y_predecir_estudio(study_name):
             CREATE SECRET (
                 TYPE GCS,
                 PROVIDER config,
-                BEARER_TOKEN '{credentials.token}'
+                BEARER_TOKEN '{token}'
             )
         """)
         
