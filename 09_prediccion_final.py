@@ -100,6 +100,7 @@ def cargar_datos_prediccion(mes_prediccion):
         config = yaml.safe_load(f)['configuracion']
     
     data_path = config['DATA_PATH_OPT']
+    logger.info(f"  Ruta: {data_path}")
     
     # Conectar DuckDB
     conn = duckdb.connect(database=':memory:')
@@ -116,35 +117,34 @@ def cargar_datos_prediccion(mes_prediccion):
         )
     """)
     
-    # Cargar datos del mes de predicción
+    # ✅ FILTRAR DIRECTAMENTE EN LA LECTURA (como en 07_evaluar)
     query = f"""
         SELECT * 
         FROM read_parquet('{data_path}')
         WHERE foto_mes = {mes_prediccion}
     """
     
+    logger.info(f"  Ejecutando query para foto_mes={mes_prediccion}...")
     data = conn.execute(query).fetchnumpy()
     
-    # Obtener numero_de_cliente ANTES de crear X
+    # Obtener numero_de_cliente
     if 'numero_de_cliente' in data:
         numeros_cliente = data['numero_de_cliente']
     else:
         logger.warning("No se encontró 'numero_de_cliente', usando índices")
         numeros_cliente = np.arange(len(data['foto_mes']))
     
-    # Features (excluir solo targets y foto_mes, INCLUIR numero_de_cliente si está)
+    # Features (excluir targets y foto_mes)
     feature_cols = [col for col in data.keys() 
                    if col not in ['target_binario', 'target_ternario', 'foto_mes']]
     
     X = np.column_stack([data[col] for col in feature_cols])
     
     logger.info(f"  ✓ {len(numeros_cliente):,} registros, {len(feature_cols)} features")
-    logger.info(f"  Features incluyen: numero_de_cliente = {'numero_de_cliente' in feature_cols}")
     
     conn.close()
     
     return X, numeros_cliente, feature_cols
-
 
 def predecir_ensemble_estudio(modelos, X):
     """Predice con un ensemble de modelos."""
