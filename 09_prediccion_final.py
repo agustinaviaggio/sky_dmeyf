@@ -94,7 +94,7 @@ def cargar_datos_prediccion(mes_prediccion):
     """Carga datos del mes de predicción desde GCS."""
     logger.info(f"\nCargando datos de {mes_prediccion}...")
     
-    # Cargar config del primer estudio para obtener data_path
+    # Cargar config
     conf_file = Path(f"~/sky_dmeyf/{ESTUDIOS_GANADORES[0]}/conf.yaml").expanduser()
     with open(conf_file, 'r') as f:
         config = yaml.safe_load(f)['configuracion']
@@ -105,7 +105,12 @@ def cargar_datos_prediccion(mes_prediccion):
     # Conectar DuckDB
     conn = duckdb.connect(database=':memory:')
     
-    token = refrescar_credenciales_gcs()
+    # ✅ USAR EL MISMO MÉTODO QUE EN 07_evaluar
+    from google.auth import default
+    from google.auth.transport.requests import Request
+    
+    credentials, project = default()
+    credentials.refresh(Request())
     
     conn.execute("INSTALL httpfs;")
     conn.execute("LOAD httpfs;")
@@ -113,11 +118,11 @@ def cargar_datos_prediccion(mes_prediccion):
         CREATE SECRET (
             TYPE GCS,
             PROVIDER config,
-            BEARER_TOKEN '{token}'
+            BEARER_TOKEN '{credentials.token}'
         )
     """)
     
-    # ✅ FILTRAR DIRECTAMENTE EN LA LECTURA (como en 07_evaluar)
+    # Query directa (igual que en 07_evaluar)
     query = f"""
         SELECT * 
         FROM read_parquet('{data_path}')
@@ -132,9 +137,9 @@ def cargar_datos_prediccion(mes_prediccion):
         numeros_cliente = data['numero_de_cliente']
     else:
         logger.warning("No se encontró 'numero_de_cliente', usando índices")
-        numeros_cliente = np.arange(len(data['foto_mes']))
+        numeros_cliente = np.arange(len(list(data.values())[0]))
     
-    # Features (excluir targets y foto_mes)
+    # Features
     feature_cols = [col for col in data.keys() 
                    if col not in ['target_binario', 'target_ternario', 'foto_mes']]
     
