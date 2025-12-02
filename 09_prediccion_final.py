@@ -8,6 +8,7 @@ import lightgbm as lgb
 import os
 import gc
 import yaml
+import json
 from pathlib import Path
 from datetime import datetime
 
@@ -46,6 +47,56 @@ def refrescar_credenciales_gcs():
     except Exception as e:
         logger.error(f"Error refrescando credenciales: {e}")
         raise
+
+
+def cargar_features_por_estudio(study_name, bucket_name):
+    """Carga las features que usó un estudio (si tiene selección)."""
+    
+    # Primero intentar cargar metadata de features
+    try:
+        refrescar_credenciales_gcs()
+        
+        gcs_pattern = f"{bucket_name}resultados/metadata_features_{study_name}_*.json"
+        result = subprocess.run(
+            ['gsutil', 'ls', gcs_pattern],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            archivos = result.stdout.strip().split('\n')
+            if archivos and archivos[0]:
+                archivo = sorted(archivos)[-1]
+                logger.info(f"  Encontrado metadata: {archivo.split('/')[-1]}")
+                
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
+                    tmp_path = tmp.name
+                
+                try:
+                    subprocess.run(
+                        ['gsutil', 'cp', archivo, tmp_path],
+                        check=True,
+                        timeout=60,
+                        capture_output=True
+                    )
+                    
+                    with open(tmp_path, 'r') as f:
+                        metadata = json.load(f)
+                    
+                    features = metadata['features']
+                    logger.info(f"  ✓ Cargadas {len(features)} features específicas del estudio")
+                    return features
+                    
+                finally:
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+        
+    except Exception as e:
+        logger.info(f"  No se encontraron features específicas ({e})")
+    
+    logger.info(f"  Se usarán todas las features disponibles")
+    return None
 
 
 def descargar_modelos_estudio(study_name, bucket_name):
@@ -89,11 +140,12 @@ def descargar_modelos_estudio(study_name, bucket_name):
     
     return modelos
 
+
 def cargar_datos_prediccion(mes_prediccion):
     """Carga datos del mes de predicción desde GCS."""
     logger.info(f"\nCargando datos de {mes_prediccion}...")
     
-    # Cargar config
+    # Cargar config del primer estudio para obtener data_path
     conf_file = Path(f"~/sky_dmeyf/{ESTUDIOS_GANADORES[0]}/conf.yaml").expanduser()
     with open(conf_file, 'r') as f:
         config = yaml.safe_load(f)['configuracion']
@@ -105,7 +157,7 @@ def cargar_datos_prediccion(mes_prediccion):
     conn = duckdb.connect(database=':memory:')
     conn.execute("SET temp_directory='/tmp'")
     
-    # Configurar GCS (IGUAL QUE EN 02_optimizacion.py)
+    # Configurar GCS (igual que 02_optimizacion.py)
     from google.auth import default
     from google.auth.transport.requests import Request
     
@@ -123,7 +175,7 @@ def cargar_datos_prediccion(mes_prediccion):
         )
     """)
     
-    # ✅ CREAR TABLA PRIMERO (como en 02_optimizacion.py)
+    # Crear tabla primero (como 02_optimizacion.py)
     logger.info(f"  Creando tabla desde parquet...")
     conn.execute(f"""
         CREATE TABLE datos AS 
@@ -132,9 +184,9 @@ def cargar_datos_prediccion(mes_prediccion):
     """)
     
     logger.info(f"  ✓ Tabla creada")
-    
-    # Ahora consultar el mes específico
     logger.info(f"  Filtrando foto_mes={mes_prediccion}...")
+    
+    # Consultar el mes específico
     query = f"SELECT * FROM datos WHERE foto_mes = {mes_prediccion}"
     data = conn.execute(query).fetchnumpy()
     
@@ -145,7 +197,7 @@ def cargar_datos_prediccion(mes_prediccion):
         logger.warning("No se encontró 'numero_de_cliente', usando índices")
         numeros_cliente = np.arange(len(list(data.values())[0]))
     
-    # Features
+    # Features (excluir solo targets y foto_mes)
     feature_cols = [col for col in data.keys() 
                    if col not in ['target_binario', 'target_ternario', 'foto_mes']]
     
@@ -157,13 +209,28 @@ def cargar_datos_prediccion(mes_prediccion):
     
     return X, numeros_cliente, feature_cols
 
-def predecir_ensemble_estudio(modelos, X):
+
+def predecir_ensemble_estudio(modelos, X, feature_cols, study_name, bucket_name):
     """Predice con un ensemble de modelos."""
+    logger.info(f"  Verificando features del estudio...")
+    
+    # Cargar features específicas del estudio
+    features_estudio = cargar_features_por_estudio(study_name, bucket_name)
+    
+    if features_estudio is not None:
+        # Filtrar X solo con las features que usó este estudio
+        indices_features = [i for i, col in enumerate(feature_cols) if col in features_estudio]
+        X_filtrado = X[:, indices_features]
+        logger.info(f"  Usando {len(indices_features)} features del estudio")
+    else:
+        X_filtrado = X
+        logger.info(f"  Usando todas las features ({X.shape[1]})")
+    
     logger.info(f"  Prediciendo con {len(modelos)} modelos...")
     
     predicciones = []
     for modelo in modelos:
-        pred = modelo.predict(X)
+        pred = modelo.predict(X_filtrado)
         predicciones.append(pred)
         gc.collect()
     
@@ -237,7 +304,13 @@ def main():
         modelos = descargar_modelos_estudio(study_name, BUCKET_NAME)
         
         # Predecir ensemble del estudio
-        pred_ensemble = predecir_ensemble_estudio(modelos, X)
+        pred_ensemble = predecir_ensemble_estudio(
+            modelos, 
+            X, 
+            feature_cols,
+            study_name,
+            BUCKET_NAME
+        )
         predicciones_estudios.append(pred_ensemble)
         
         logger.info(f"  ✓ Predicciones completadas para {study_name}")
@@ -296,5 +369,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import os
     main()
