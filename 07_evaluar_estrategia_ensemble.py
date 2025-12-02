@@ -196,7 +196,7 @@ def entrenar_y_predecir_estudio(study_name):
                 'verbose': -1,
                 'is_unbalance': True,
                 'bagging_freq': 1,
-                'n_jobs': 1,  # 1 core por modelo, paralelizamos estudios
+                'n_jobs': 4,  # Más cores por modelo ya que hay menos estudios en paralelo
                 'seed': semilla,
                 **best_params
             }
@@ -221,27 +221,17 @@ def entrenar_y_predecir_estudio(study_name):
         
         logger.info(f"{study_name}: Test con {len(y_test):,} registros")
         
-        # Predecir con cada modelo individual
-        predicciones_individuales = []
-        for i, model in enumerate(models):
-            probs = model.predict(X_test)
-            predicciones_individuales.append({
-                'semilla': int(SEMILLAS[i]),
-                'probabilidades': probs.tolist()
-            })
-        
-        # Predecir ensemble (promedio)
+        # Predecir ensemble (promedio) - SIN MODELOS INDIVIDUALES
         all_probs = [model.predict(X_test) for model in models]
         probs_ensemble = np.mean(all_probs, axis=0)
         
-        logger.info(f"{study_name}: ✓ Predicciones completadas")
+        logger.info(f"{study_name}: ✓ Predicciones ensemble completadas")
         
         conn.close()
         gc.collect()
         
         return {
             'study_name': study_name,
-            'predicciones_individuales': predicciones_individuales,
             'predicciones_ensemble': probs_ensemble.tolist(),
             'y_test': y_test.tolist(),
             'ganancia_acierto': ganancia_acierto,
@@ -277,7 +267,7 @@ def encontrar_threshold_optimo(y_true, probs, ganancia_acierto, costo_estimulo):
 
 
 def evaluar_estrategias(resultados):
-    """Evalúa todas las estrategias posibles."""
+    """Evalúa todas las estrategias posibles - SOLO ENSEMBLES."""
     logger.info("\n" + "="*80)
     logger.info("EVALUANDO ESTRATEGIAS")
     logger.info("="*80)
@@ -289,31 +279,8 @@ def evaluar_estrategias(resultados):
     
     estrategias = []
     
-    # 1. MEJOR MODELO INDIVIDUAL
-    logger.info("\n1. Evaluando mejor modelo individual...")
-    mejor_individual = None
-    for r in resultados:
-        for pred_ind in r['predicciones_individuales']:
-            resultado = encontrar_threshold_optimo(
-                y_test, 
-                pred_ind['probabilidades'],
-                ganancia_acierto,
-                costo_estimulo
-            )
-            if mejor_individual is None or resultado['ganancia'] > mejor_individual['ganancia']:
-                mejor_individual = {
-                    **resultado,
-                    'estrategia': 'MODELO_INDIVIDUAL',
-                    'estudio': r['study_name'],
-                    'semilla': pred_ind['semilla']
-                }
-    
-    estrategias.append(mejor_individual)
-    logger.info(f"   Mejor: {mejor_individual['estudio']} semilla {mejor_individual['semilla']}")
-    logger.info(f"   Ganancia: ${mejor_individual['ganancia']:,.0f}")
-    
-    # 2. MEJOR ENSEMBLE POR ESTUDIO
-    logger.info("\n2. Evaluando mejor ensemble por estudio...")
+    # 1. MEJOR ENSEMBLE POR ESTUDIO
+    logger.info("\n1. Evaluando mejor ensemble por estudio...")
     mejor_ensemble = None
     for r in resultados:
         resultado = encontrar_threshold_optimo(
@@ -333,8 +300,8 @@ def evaluar_estrategias(resultados):
     logger.info(f"   Mejor: {mejor_ensemble['estudio']}")
     logger.info(f"   Ganancia: ${mejor_ensemble['ganancia']:,.0f}")
     
-    # 3. SUPER-ENSEMBLE PESOS IGUALES (TODOS)
-    logger.info("\n3. Evaluando super-ensemble pesos iguales (7 estudios)...")
+    # 2. SUPER-ENSEMBLE PESOS IGUALES (TODOS)
+    logger.info("\n2. Evaluando super-ensemble pesos iguales (7 estudios)...")
     probs_iguales = np.mean([np.array(r['predicciones_ensemble']) for r in resultados], axis=0)
     resultado_iguales = encontrar_threshold_optimo(y_test, probs_iguales, ganancia_acierto, costo_estimulo)
     estrategias.append({
@@ -346,8 +313,8 @@ def evaluar_estrategias(resultados):
     })
     logger.info(f"   Ganancia: ${resultado_iguales['ganancia']:,.0f}")
     
-    # 4. SUPER-ENSEMBLE PESOS POR GANANCIA (TODOS)
-    logger.info("\n4. Evaluando super-ensemble pesos por ganancia (7 estudios)...")
+    # 3. SUPER-ENSEMBLE PESOS POR GANANCIA (TODOS)
+    logger.info("\n3. Evaluando super-ensemble pesos por ganancia (7 estudios)...")
     ganancias = []
     for r in resultados:
         resultado = encontrar_threshold_optimo(y_test, r['predicciones_ensemble'], ganancia_acierto, costo_estimulo)
@@ -372,11 +339,11 @@ def evaluar_estrategias(resultados):
     })
     logger.info(f"   Ganancia: ${resultado_ganancia['ganancia']:,.0f}")
     
-    # 5. TODAS LAS COMBINACIONES DE 2, 3, 4, 5 Y 6 ESTUDIOS
+    # 4. TODAS LAS COMBINACIONES DE 2, 3, 4, 5 Y 6 ESTUDIOS
     from itertools import combinations
     
     for n_comb in [2, 3, 4, 5, 6]:
-        logger.info(f"\n5.{n_comb}. Evaluando todas las combinaciones de {n_comb} estudios...")
+        logger.info(f"\n4.{n_comb}. Evaluando todas las combinaciones de {n_comb} estudios...")
         
         n_total_combs = len(list(combinations(range(len(resultados)), n_comb)))
         logger.info(f"   Total de combinaciones: {n_total_combs}")
@@ -412,8 +379,8 @@ def evaluar_estrategias(resultados):
         logger.info(f"   Mejor combinación: {', '.join(mejor_comb['estudios'])}")
         logger.info(f"   Ganancia: ${mejor_comb['ganancia']:,.0f}")
     
-    # 6. TOP-N POR GANANCIA INDIVIDUAL
-    logger.info("\n6. Evaluando top-N por ganancia individual...")
+    # 5. TOP-N POR GANANCIA INDIVIDUAL
+    logger.info("\n5. Evaluando top-N por ganancia individual...")
     
     # Calcular ganancia individual de cada estudio
     ganancias_estudios = []
@@ -455,8 +422,8 @@ def main():
     
     resultados = []
     
-    # Usar 7 workers (uno por estudio)
-    with ProcessPoolExecutor(max_workers=7) as executor:
+    # Usar 3 workers (menos estudios en paralelo, más recursos por estudio)
+    with ProcessPoolExecutor(max_workers=3) as executor:
         futures = {executor.submit(entrenar_y_predecir_estudio, estudio): estudio 
                    for estudio in ESTUDIOS}
         
