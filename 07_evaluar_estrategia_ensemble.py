@@ -212,14 +212,13 @@ def entrenar_y_predecir_estudio(study_name):
         del X_train, y_train, train_data
         gc.collect()
         
-        # TEST 202107
+        # TEST 202107 - NO cargar y_test acá, viene inyectado
         query_test = f"SELECT * FROM datos WHERE foto_mes = 202107"
         test_data = conn.execute(query_test).fetchnumpy()
         
         X_test = np.column_stack([test_data[c] for c in feature_cols])
-        y_test = test_data['target_ternario']
         
-        logger.info(f"{study_name}: Test con {len(y_test):,} registros")
+        logger.info(f"{study_name}: Test con {len(test_data['target_ternario']):,} registros")
         
         # Predecir ensemble (promedio) - SIN MODELOS INDIVIDUALES
         all_probs = [model.predict(X_test) for model in models]
@@ -233,9 +232,7 @@ def entrenar_y_predecir_estudio(study_name):
         return {
             'study_name': study_name,
             'predicciones_ensemble': probs_ensemble.tolist(),
-            'y_test': y_test.tolist(),
-            'ganancia_acierto': ganancia_acierto,
-            'costo_estimulo': costo_estimulo,
+            # y_test se inyecta desde main
             'n_features': len(feature_cols)
         }
         
@@ -417,24 +414,58 @@ def main():
     logger.info(f"Estudios: {ESTUDIOS}")
     logger.info(f"Configuración: 96GB RAM + 12 vCPU")
     
-    # Entrenar y predecir en paralelo
-    logger.info("\nEntrenando y prediciendo estudios en paralelo...")
+    # Cargar y_test UNA SOLA VEZ antes de paralelizar
+    logger.info("\nCargando y_test (202107) una vez...")
+    primer_estudio = ESTUDIOS[0]
+    config = cargar_config_estudio(primer_estudio)
+    
+    conn = duckdb.connect(database=':memory:')
+    
+    from google.auth import default
+    from google.auth.transport.requests import Request
+    
+    credentials, project = default()
+    credentials.refresh(Request())
+    
+    conn.execute("INSTALL httpfs;")
+    conn.execute("LOAD httpfs;")
+    conn.execute(f"""
+        CREATE SECRET (
+            TYPE GCS,
+            PROVIDER config,
+            BEARER_TOKEN '{credentials.token}'
+        )
+    """)
+    
+    query = f"SELECT target_ternario FROM read_parquet('{config['DATA_PATH_OPT']}') WHERE foto_mes = 202107"
+    y_test_global = conn.execute(query).fetchnumpy()['target_ternario'].tolist()
+    ganancia_acierto_global = config['GANANCIA_ACIERTO']
+    costo_estimulo_global = config['COSTO_ESTIMULO']
+    
+    conn.close()
+    
+    logger.info(f"✓ y_test cargado: {len(y_test_global):,} registros")
+    
+    # Entrenar y predecir SECUENCIALMENTE (evitar saturar GCS)
+    logger.info("\nEntrenando y prediciendo estudios SECUENCIALMENTE...")
+    logger.info("(Evita saturar conexiones a GCS)")
     
     resultados = []
     
-    # Usar 3 workers (menos estudios en paralelo, más recursos por estudio)
-    with ProcessPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(entrenar_y_predecir_estudio, estudio): estudio 
-                   for estudio in ESTUDIOS}
-        
-        for future in as_completed(futures):
-            estudio = futures[future]
-            try:
-                resultado = future.result()
-                if resultado:
-                    resultados.append(resultado)
-            except Exception as e:
-                logger.error(f"Error procesando {estudio}: {e}")
+    for estudio in ESTUDIOS:
+        try:
+            logger.info(f"\n{'='*80}")
+            logger.info(f"Procesando {estudio}...")
+            resultado = entrenar_y_predecir_estudio(estudio)
+            if resultado:
+                # Inyectar y_test global
+                resultado['y_test'] = y_test_global
+                resultado['ganancia_acierto'] = ganancia_acierto_global
+                resultado['costo_estimulo'] = costo_estimulo_global
+                resultados.append(resultado)
+                logger.info(f"✓ {estudio} completado")
+        except Exception as e:
+            logger.error(f"Error procesando {estudio}: {e}", exc_info=True)
     
     if len(resultados) == 0:
         logger.error("No se pudo procesar ningún estudio")
@@ -461,8 +492,6 @@ def main():
         
         if 'estudio' in est:
             logger.info(f"   Estudio: {est['estudio']}")
-        if 'semilla' in est:
-            logger.info(f"   Semilla: {est['semilla']}")
         if 'pesos' in est:
             logger.info(f"   Pesos:")
             for estudio, peso in sorted(est['pesos'].items(), key=lambda x: x[1], reverse=True):
