@@ -12,419 +12,145 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-# Configuración
 ESTUDIOS = ['2511_2', '2611_2', '2711_2']
 BUCKET_NAME = "gs://sra_electron_bukito3/"
 MES_PREDICCION = 202109
-THRESHOLD = 0.76
 ENVIOS_FIJOS = 11000
 
-# Helper global
-FEATURES_FROM_MODEL = {}   # Guarda features exactas por estudio cuando no hay JSON
+FEATURES_FROM_MODEL = {}
 
-# Logging
 os.makedirs("logs", exist_ok=True)
 fecha = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(f"logs/log_prediccion_final_{fecha}.log"),
+        logging.FileHandler(f"logs/log_prediccion_por_estudio_{fecha}.log"),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
-
 def refrescar_credenciales_gcs():
-    """Refresca las credenciales de GCS."""
-    try:
-        from google.auth import default
-        from google.auth.transport.requests import Request
-
-        credentials, project = default()
-        credentials.refresh(Request())
-
-        os.environ['CLOUDSDK_AUTH_ACCESS_TOKEN'] = credentials.token
-        return credentials.token
-    except Exception as e:
-        logger.error(f"Error refrescando credenciales: {e}")
-        raise
-
-
-def cargar_features_por_estudio(study_name, bucket_name):
-    """Carga las features EN EL ORDEN EXACTO que usó un estudio."""
-    try:
-        refrescar_credenciales_gcs()
-
-        gcs_pattern = f"{bucket_name}resultados/metadata_features_{study_name}_*.json"
-        result = subprocess.run(
-            ['gsutil', 'ls', gcs_pattern],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-
-        if result.returncode == 0:
-            archivos = result.stdout.strip().split('\n')
-            if archivos and archivos[0]:
-                archivo = sorted(archivos)[-1]
-                logger.info(f"  Encontrado metadata: {archivo.split('/')[-1]}")
-
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
-                    tmp_path = tmp.name
-
-                try:
-                    subprocess.run(
-                        ['gsutil', 'cp', archivo, tmp_path],
-                        check=True,
-                        timeout=60,
-                        capture_output=True
-                    )
-
-                    with open(tmp_path, 'r') as f:
-                        metadata = json.load(f)
-
-                    # Mantener el orden exacto del entrenamiento
-                    features = metadata['features']
-                    logger.info(f"  ✓ Cargadas {len(features)} features (orden exacto)")
-                    return features
-
-                finally:
-                    if os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
-
-    except Exception as e:
-        logger.info(f"  No se encontraron features específicas ({e})")
-
-    logger.info(f"  Se usarán todas las features disponibles (sin metadata)")
-    return None
-
-
-def descargar_modelos_estudio(study_name, bucket_name):
-    """Descarga los 50 modelos de un estudio desde GCS."""
-    logger.info(f"\nDescargando modelos de {study_name}...")
-
-    refrescar_credenciales_gcs()
-
-    local_dir = Path.home() / f"modelos_temp_{study_name}"
-    local_dir.mkdir(exist_ok=True)
-
-    # Descargar todos los modelos del estudio
-    gcs_pattern = f"{bucket_name}modelos_finales/{study_name}_seed_*.txt"
-
-    result = subprocess.run(
-        ['gsutil', '-m', 'cp', gcs_pattern, str(local_dir)],
-        capture_output=True,
-        text=True,
-        timeout=300
-    )
-
-    if result.returncode != 0:
-        logger.error(f"Error descargando modelos: {result.stderr}")
-        raise Exception(f"No se pudieron descargar modelos de {study_name}")
-
-    # Cargar modelos
-    modelos = []
-    archivos = sorted(local_dir.glob(f"{study_name}_seed_*.txt"))
-
-    logger.info(f"  Encontrados {len(archivos)} modelos")
-
-    for archivo in archivos:
-        modelo = lgb.Booster(model_file=str(archivo))
-        modelos.append(modelo)
-
-    logger.info(f"  ✓ {len(modelos)} modelos cargados")
-
-    # Limpiar archivos
-    import shutil
-    shutil.rmtree(local_dir)
-
-    return modelos
-
-
-def cargar_datos_prediccion(mes_prediccion):
-    """Carga datos del mes de predicción desde GCS."""
-    logger.info(f"\nCargando datos de {mes_prediccion}...")
-
-    # Cargar config del primer estudio para obtener data_path
-    conf_file = Path(f"~/sky_dmeyf/{ESTUDIOS[0]}/conf.yaml").expanduser()
-    with open(conf_file, 'r') as f:
-        config = yaml.safe_load(f)['configuracion']
-
-    data_path = config['DATA_PATH_OPT']
-    logger.info(f"  Ruta: {data_path}")
-
-    # Conectar DuckDB
-    conn = duckdb.connect(database=':memory:')
-    conn.execute("SET temp_directory='/tmp'")
-
-    # Configurar GCS
     from google.auth import default
     from google.auth.transport.requests import Request
-
     credentials, project = default()
     credentials.refresh(Request())
-    token = credentials.token
+    os.environ['CLOUDSDK_AUTH_ACCESS_TOKEN'] = credentials.token
+    return credentials.token
 
+def cargar_features_por_estudio(study_name, bucket_name):
+    refrescar_credenciales_gcs()
+    gcs_pattern = f"{bucket_name}resultados/metadata_features_{study_name}_*.json"
+    result = subprocess.run(['gsutil', 'ls', gcs_pattern],
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+
+    archivos = result.stdout.strip().split('\n')
+    if not archivos or not archivos[0]:
+        return None
+
+    archivo = sorted(archivos)[-1]
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
+        tmp_path = tmp.name
+
+    subprocess.run(['gsutil', 'cp', archivo, tmp_path],
+                   check=True, capture_output=True)
+
+    with open(tmp_path, 'r') as f:
+        metadata = json.load(f)
+    os.unlink(tmp_path)
+    return metadata['features']
+
+def descargar_modelos_estudio(study_name, bucket_name):
+    refrescar_credenciales_gcs()
+    local_dir = Path.home() / f"modelos_temp_{study_name}"
+    local_dir.mkdir(exist_ok=True)
+    gcs_pattern = f"{bucket_name}modelos_finales/{study_name}_seed_*.txt"
+    subprocess.run(['gsutil', '-m', 'cp', gcs_pattern, str(local_dir)],
+                   check=True, capture_output=True)
+    modelos = [lgb.Booster(model_file=str(p)) for p in sorted(local_dir.glob("*.txt"))]
+    import shutil
+    shutil.rmtree(local_dir)
+    return modelos
+
+def cargar_datos_prediccion(mes_prediccion):
+    conf_file = Path(f"~/sky_dmeyf/{ESTUDIOS[0]}/conf.yaml").expanduser()
+    data_path = yaml.safe_load(open(conf_file))['configuracion']['DATA_PATH_OPT']
+    conn = duckdb.connect(database=':memory:')
     conn.execute("INSTALL httpfs;")
     conn.execute("LOAD httpfs;")
-    conn.execute(f"""
-        CREATE SECRET (
-            TYPE GCS,
-            PROVIDER config,
-            BEARER_TOKEN '{token}'
-        )
-    """)
 
-    logger.info(f"  Creando tabla desde parquet...")
-    conn.execute(f"""
-        CREATE TABLE datos AS 
-        SELECT *
-        FROM read_parquet('{data_path}')
-    """)
+    token = refrescar_credenciales_gcs()
+    conn.execute(f"CREATE SECRET (TYPE GCS, PROVIDER config, BEARER_TOKEN '{token}')")
 
-    logger.info(f"  ✓ Tabla creada")
-    logger.info(f"  Filtrando foto_mes={mes_prediccion}...")
+    conn.execute("""
+        CREATE TABLE datos AS
+        SELECT * FROM read_parquet('{}')
+    """.format(data_path))
 
-    # Consultar el mes específico
-    query = f"SELECT * FROM datos WHERE foto_mes = {mes_prediccion}"
-    data = conn.execute(query).fetchnumpy()
+    data = conn.execute(
+        f"SELECT * FROM datos WHERE foto_mes = {mes_prediccion}"
+    ).fetchnumpy()
 
-    # Obtener numero_de_cliente
+    columnas_prohibidas = {'target_binario', 'target_ternario', 'foto_mes'}
+    feature_cols = [c for c in data.keys() if c not in columnas_prohibidas]
+    X = np.column_stack([data[c] for c in feature_cols])
+
     if 'numero_de_cliente' in data:
         numeros_cliente = data['numero_de_cliente']
     else:
-        logger.warning("No se encontró 'numero_de_cliente', usando índices")
-        numeros_cliente = np.arange(len(list(data.values())[0]))
-
-    # Excluir siempre las columnas prohibidas
-    columnas_prohibidas = {'target_binario', 'target_ternario', 'foto_mes'}
-    feature_cols = [col for col in data.keys() if col not in columnas_prohibidas]
-
-    X = np.column_stack([data[col] for col in feature_cols])
-
-    logger.info(f"  ✓ {len(numeros_cliente):,} registros, {len(feature_cols)} features")
+        numeros_cliente = np.arange(X.shape[0])
 
     conn.close()
-
     return X, numeros_cliente, feature_cols
 
-
-def obtener_features_de_modelo(modelo, study_name, feature_cols):
-    """
-    Obtiene el orden EXACTO de features desde un modelo LightGBM cuando
-    no existe metadata JSON (caso 2511_2).
-    """
-    # Extraer nombres de features del modelo
-    try:
-        feature_list = modelo.feature_name()
-    except Exception as e:
-        logger.error(f"  ERROR extrayendo feature_name() del modelo {study_name}: {e}")
-        raise
-
-    # Limpiar columnas que jamás deben entrar al modelo
+def obtener_features_de_modelo(modelo, feature_cols):
     columnas_prohibidas = {'target_binario', 'target_ternario', 'foto_mes'}
-    feature_list = [f for f in feature_list if f not in columnas_prohibidas]
+    feat = [f for f in modelo.feature_name() if f not in columnas_prohibidas]
+    return feat
 
-    # Validar que todas estén en feature_cols (del parquet)
-    faltantes = [f for f in feature_list if f not in feature_cols]
+def predecir_estudio(modelos, X, feature_cols, study_name):
+    features = cargar_features_por_estudio(study_name, BUCKET_NAME)
+    if features is None:
+        features = obtener_features_de_modelo(modelos[0], feature_cols)
 
-    if faltantes:
-        logger.error(f"ERROR: El modelo {study_name} usa features que NO están en el parquet:")
-        for f in faltantes:
-            logger.error(f"  - {f}")
-        raise ValueError("Faltan columnas necesarias en el parquet.")
+    indices = [feature_cols.index(f) for f in features]
+    Xf = X[:, indices]
 
-    logger.info(f"  ✓ Features tomadas del modelo ({len(feature_list)} columnas).")
-    return feature_list
+    preds = [m.predict(Xf) for m in modelos]
+    preds_mean = np.mean(preds, axis=0)
+    return preds_mean
 
+def generar_submission_simple(prob, clientes, nombre):
+    idx = np.argsort(prob)[::-1][:ENVIOS_FIJOS]
+    df = pd.DataFrame({"numero_de_cliente": clientes[idx]})
 
-def predecir_ensemble_estudio(modelos, X, feature_cols, study_name, bucket_name):
-    """
-    Predice con un ensemble de modelos asegurando que:
-    - Las features están en el ORDEN EXACTO del entrenamiento.
-    - Si hay metadata JSON → se usa esa lista.
-    - Si NO hay metadata JSON (2511_2) → se extrae la lista desde el primer modelo.
-    """
+    outdir = Path("submissions_por_estudio")
+    outdir.mkdir(exist_ok=True)
+    outfile = outdir / nombre
+    df.to_csv(outfile, index=False)
 
-    logger.info(f"  Verificando features del estudio...")
-
-    # 1) Intentar cargar metadata JSON
-    features_estudio = cargar_features_por_estudio(study_name, bucket_name)
-
-    if features_estudio is None:
-        logger.info(f"  ⚠ No hay metadata JSON para {study_name}. "
-                    f"Se usarán las features del primer modelo.")
-
-        # Extraemos solo una vez por estudio
-        if study_name not in FEATURES_FROM_MODEL:
-            primer_modelo = modelos[0]
-            FEATURES_FROM_MODEL[study_name] = obtener_features_de_modelo(
-                primer_modelo,
-                study_name,
-                feature_cols
-            )
-
-        features_estudio = FEATURES_FROM_MODEL[study_name]
-
-    # ----------------------------------------------------------------------
-    # 2) Validar que TODAS las features existan en feature_cols del parquet
-    faltantes = [f for f in features_estudio if f not in feature_cols]
-    if faltantes:
-        logger.error("ERROR: El parquet NO tiene columnas que el modelo necesita:")
-        for f in faltantes:
-            logger.error(f"   - {f}")
-        raise ValueError("Faltan columnas en el parquet.")
-
-    # ----------------------------------------------------------------------
-    # 3) Obtener los índices en el ORDEN EXACTO
-    indices_features = [feature_cols.index(f) for f in features_estudio]
-
-    logger.info(f"  Usando {len(indices_features)} features del estudio "
-                f"(orden exacto del entrenamiento).")
-
-    X_filtrado = X[:, indices_features]
-
-    # ----------------------------------------------------------------------
-    # 4) Predicción ensemble
-    logger.info(f"  Prediciendo con {len(modelos)} modelos...")
-    predicciones = []
-
-    for modelo in modelos:
-        pred = modelo.predict(X_filtrado)
-        predicciones.append(pred)
-
-    ensemble_pred = np.mean(predicciones, axis=0)
-
-    return ensemble_pred
-
-
-def generar_submission(probabilidades, numeros_cliente, threshold, n_envios, nombre_archivo):
-    """Genera archivo de submission con los clientes a enviar."""
-
-    # Ordenar por probabilidad descendente
-    indices_ordenados = np.argsort(probabilidades)[::-1]
-
-    if threshold is not None:
-        seleccionados = probabilidades >= threshold
-        indices_seleccionados = np.where(seleccionados)[0]
-        indices_seleccionados = indices_seleccionados[np.argsort(probabilidades[seleccionados])[::-1]]
-    else:
-        indices_seleccionados = indices_ordenados[:n_envios]
-
-    clientes_seleccionados = numeros_cliente[indices_seleccionados]
-
-    # Crear DataFrame
-    df = pd.DataFrame({
-        'numero_de_cliente': clientes_seleccionados
-    })
-
-    # Guardar
-    output_dir = Path("submissions")
-    output_dir.mkdir(exist_ok=True)
-
-    output_file = output_dir / nombre_archivo
-    df.to_csv(output_file, index=False)
-
-    logger.info(f"  ✓ Generado: {output_file}")
-    logger.info(f"    Clientes seleccionados: {len(clientes_seleccionados):,}")
-
-    # Subir a GCS
-    gcs_path = f"{BUCKET_NAME}submissions/{nombre_archivo}"
-    subprocess.run(['gsutil', 'cp', str(output_file), gcs_path])
-
-    logger.info(f"  ✓ Subido a: {gcs_path}")
-
-    return output_file
-
+    subprocess.run(['gsutil', 'cp', str(outfile), f"{BUCKET_NAME}submissions/{nombre}"])
+    return outfile
 
 def main():
-    logger.info("=" * 80)
-    logger.info("PREDICCIÓN FINAL PARA SUBMISSION")
-    logger.info("=" * 80)
-    logger.info(f"Mes de predicción: {MES_PREDICCION}")
-    logger.info(f"Estudios: {ESTUDIOS}")
-    logger.info(f"Total modelos a cargar: {len(ESTUDIOS) * 50} = {len(ESTUDIOS) * 50}")
+    X, clientes, feature_cols = cargar_datos_prediccion(MES_PREDICCION)
 
-    # 1. Cargar datos de predicción
-    X, numeros_cliente, feature_cols = cargar_datos_prediccion(MES_PREDICCION)
+    for study in ESTUDIOS:
+        logger.info(f"====== Estudio {study} ======")
+        modelos = descargar_modelos_estudio(study, BUCKET_NAME)
+        pred = predecir_estudio(modelos, X, feature_cols, study)
 
-    # 2. Cargar modelos y predecir por estudio
-    predicciones_estudios = []
+        nombre = f"submission_{study}_top{ENVIOS_FIJOS}_{fecha}.csv"
+        generar_submission_simple(pred, clientes, nombre)
 
-    for study_name in ESTUDIOS:
-        logger.info(f"\n{'=' * 80}")
-        logger.info(f"PROCESANDO ESTUDIO: {study_name}")
-        logger.info(f"{'=' * 80}")
-
-        # Descargar y cargar modelos
-        modelos = descargar_modelos_estudio(study_name, BUCKET_NAME)
-
-        # Predecir ensemble del estudio
-        pred_ensemble = predecir_ensemble_estudio(
-            modelos,
-            X,
-            feature_cols,
-            study_name,
-            BUCKET_NAME
-        )
-        predicciones_estudios.append(pred_ensemble)
-
-        logger.info(f"  ✓ Predicciones completadas para {study_name}")
-
-        # Liberar memoria
         del modelos
         gc.collect()
 
-    # 3. Combinar predicciones (promedio simple de los 3 estudios)
-    logger.info("\n" + "=" * 80)
-    logger.info("COMBINANDO PREDICCIONES")
-    logger.info("=" * 80)
-    logger.info("Estrategia: Promedio simple de 3 estudios")
-
-    predicciones_finales = np.mean(predicciones_estudios, axis=0)
-
-    logger.info(f"  ✓ Predicciones finales generadas")
-    logger.info(f"  Min prob: {predicciones_finales.min():.6f}")
-    logger.info(f"  Max prob: {predicciones_finales.max():.6f}")
-    logger.info(f"  Media prob: {predicciones_finales.mean():.6f}")
-
-    # 4. Generar submissions
-    logger.info("\n" + "=" * 80)
-    logger.info("GENERANDO ARCHIVOS DE SUBMISSION")
-    logger.info("=" * 80)
-
-    # Submission 1: Con threshold
-    logger.info(f"\n1. SUBMISSION CON THRESHOLD = {THRESHOLD}")
-    archivo_threshold = generar_submission(
-        predicciones_finales,
-        numeros_cliente,
-        threshold=THRESHOLD,
-        n_envios=None,
-        nombre_archivo=f"submission_threshold_{THRESHOLD:.6f}_{fecha}.csv"
-    )
-
-    # Submission 2: Con envíos fijos
-    logger.info(f"\n2. SUBMISSION CON ENVÍOS FIJOS = {ENVIOS_FIJOS}")
-    archivo_fijos = generar_submission(
-        predicciones_finales,
-        numeros_cliente,
-        threshold=None,
-        n_envios=ENVIOS_FIJOS,
-        nombre_archivo=f"submission_envios_{ENVIOS_FIJOS}_{fecha}.csv"
-    )
-
-    # Resumen final
-    logger.info("\n" + "=" * 80)
-    logger.info("PREDICCIÓN COMPLETADA")
-    logger.info("=" * 80)
-    logger.info(f"\nArchivos generados:")
-    logger.info(f"  1. {archivo_threshold}")
-    logger.info(f"  2. {archivo_fijos}")
-    logger.info(f"\nSubidos a: {BUCKET_NAME}submissions/")
-    logger.info("\n✓ Pipeline de predicción completado exitosamente")
-
+    logger.info("Listo: 3 CSV generados.")
 
 if __name__ == "__main__":
     main()
